@@ -22,9 +22,18 @@ const (
 	stDoubleClose2          // inside double tag, saw %%
 )
 
-type pctTag struct {
-	double bool
-	name   string
+type condState struct {
+	anyTaken bool // true if any branch (if/elseif) was already taken
+	current  bool // true if the current branch is emitting content
+}
+
+func shouldEmit(stack []condState) bool {
+	for _, s := range stack {
+		if !s.current {
+			return false
+		}
+	}
+	return true
 }
 
 // resolvePercent processes <%var%> (escaped) and <%%var%%> (literal) tags
@@ -32,7 +41,9 @@ type pctTag struct {
 func (ms *Miniskin) resolvePercent(content string, vars map[string]string, chain []string) (string, error) {
 	var out strings.Builder
 	var tag strings.Builder
+	var condStack []condState
 	state := stText
+	emit := true // cached shouldEmit result
 
 	for i := 0; i < len(content); i++ {
 		c := content[i]
@@ -41,7 +52,7 @@ func (ms *Miniskin) resolvePercent(content string, vars map[string]string, chain
 		case stText:
 			if c == '<' {
 				state = stLT
-			} else {
+			} else if emit {
 				out.WriteByte(c)
 			}
 
@@ -49,8 +60,10 @@ func (ms *Miniskin) resolvePercent(content string, vars map[string]string, chain
 			if c == '%' {
 				state = stLTPct
 			} else {
-				out.WriteByte('<')
-				out.WriteByte(c)
+				if emit {
+					out.WriteByte('<')
+					out.WriteByte(c)
+				}
 				state = stText
 			}
 
@@ -58,7 +71,6 @@ func (ms *Miniskin) resolvePercent(content string, vars map[string]string, chain
 			if c == '%' {
 				state = stLTPctPct
 			} else {
-				// start of single tag <%
 				tag.Reset()
 				tag.WriteByte(c)
 				state = stSingle
@@ -73,22 +85,19 @@ func (ms *Miniskin) resolvePercent(content string, vars map[string]string, chain
 
 		case stSingleClose:
 			if c == '>' {
-				// complete single tag <%...%>
-				resolved, err := ms.resolveSingleTag(tag.String(), vars)
-				if err != nil {
+				tagStr := strings.TrimSpace(tag.String())
+				if err := ms.handleSingleTag(tagStr, vars, &condStack, &out, emit); err != nil {
 					return "", err
 				}
-				out.WriteString(resolved)
+				emit = shouldEmit(condStack)
 				state = stText
 			} else {
-				// false alarm, the % was part of the tag content
 				tag.WriteByte('%')
 				tag.WriteByte(c)
 				state = stSingle
 			}
 
 		case stLTPctPct:
-			// start of double tag <%%
 			tag.Reset()
 			tag.WriteByte(c)
 			state = stDouble
@@ -104,7 +113,6 @@ func (ms *Miniskin) resolvePercent(content string, vars map[string]string, chain
 			if c == '%' {
 				state = stDoubleClose2
 			} else {
-				// false alarm, single % inside double tag
 				tag.WriteByte('%')
 				tag.WriteByte(c)
 				state = stDouble
@@ -112,15 +120,15 @@ func (ms *Miniskin) resolvePercent(content string, vars map[string]string, chain
 
 		case stDoubleClose2:
 			if c == '>' {
-				// complete double tag <%%...%%>
-				resolved, err := ms.resolveDoubleTag(tag.String(), vars, chain)
-				if err != nil {
-					return "", err
+				if emit {
+					resolved, err := ms.resolveDoubleTag(tag.String(), vars, chain)
+					if err != nil {
+						return "", err
+					}
+					out.WriteString(resolved)
 				}
-				out.WriteString(resolved)
 				state = stText
 			} else {
-				// false alarm, %% was part of the tag content
 				tag.WriteByte('%')
 				tag.WriteByte('%')
 				tag.WriteByte(c)
@@ -132,7 +140,9 @@ func (ms *Miniskin) resolvePercent(content string, vars map[string]string, chain
 	// Check for unclosed tags
 	switch state {
 	case stLT:
-		out.WriteByte('<')
+		if emit {
+			out.WriteByte('<')
+		}
 	case stLTPct:
 		return "", fmt.Errorf("unclosed <%% tag at end of content")
 	case stSingle, stSingleClose:
@@ -143,13 +153,75 @@ func (ms *Miniskin) resolvePercent(content string, vars map[string]string, chain
 		return "", fmt.Errorf("unclosed <%%%% tag: <%%%s", tag.String())
 	}
 
+	if len(condStack) > 0 {
+		return "", fmt.Errorf("unclosed <%sif:...%%> block (%d levels)", "%", len(condStack))
+	}
+
 	return out.String(), nil
 }
 
 // ---
 
+func (ms *Miniskin) handleSingleTag(tagStr string, vars map[string]string, condStack *[]condState, out *strings.Builder, emit bool) error {
+	switch {
+	case strings.HasPrefix(tagStr, "if:"):
+		varName := strings.TrimSpace(strings.TrimPrefix(tagStr, "if:"))
+		if emit {
+			val, ok := vars[varName]
+			active := ok && val != ""
+			*condStack = append(*condStack, condState{anyTaken: active, current: active})
+		} else {
+			*condStack = append(*condStack, condState{anyTaken: true, current: false})
+		}
+
+	case strings.HasPrefix(tagStr, "elseif:"):
+		if len(*condStack) == 0 {
+			return fmt.Errorf("<%selseif:...%%> without matching <%sif:...%%>", "%", "%")
+		}
+		top := &(*condStack)[len(*condStack)-1]
+		if top.anyTaken {
+			top.current = false
+		} else {
+			varName := strings.TrimSpace(strings.TrimPrefix(tagStr, "elseif:"))
+			val, ok := vars[varName]
+			active := ok && val != ""
+			top.current = active
+			top.anyTaken = active
+		}
+
+	case tagStr == "else":
+		if len(*condStack) == 0 {
+			return fmt.Errorf("<%selse%%> without matching <%sif:...%%>", "%", "%")
+		}
+		top := &(*condStack)[len(*condStack)-1]
+		if top.anyTaken {
+			top.current = false
+		} else {
+			top.current = true
+			top.anyTaken = true
+		}
+
+	case tagStr == "endif":
+		if len(*condStack) == 0 {
+			return fmt.Errorf("<%sendif%%> without matching <%sif:...%%>", "%", "%")
+		}
+		*condStack = (*condStack)[:len(*condStack)-1]
+
+	default:
+		if emit {
+			resolved, err := ms.resolveSingleTag(tagStr, vars)
+			if err != nil {
+				return err
+			}
+			out.WriteString(resolved)
+		}
+	}
+	return nil
+}
+
+// ---
+
 func (ms *Miniskin) resolveSingleTag(name string, vars map[string]string) (string, error) {
-	name = strings.TrimSpace(name)
 	val, ok := vars[name]
 	if !ok {
 		return "", fmt.Errorf("undefined variable <%%%s%%>", name)

@@ -258,6 +258,188 @@ func TestIncludeFileNotFound(t *testing.T) {
 
 // ---
 
+func TestIfTrue(t *testing.T) {
+	ms := New(t.TempDir(), t.TempDir())
+	vars := map[string]string{"x": "yes"}
+	result, err := ms.resolvePercent(`before<%if:x%>SHOW<%endif%>after`, vars, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "beforeSHOWafter" {
+		t.Errorf("expected %q, got %q", "beforeSHOWafter", result)
+	}
+}
+
+// ---
+
+func TestIfFalse(t *testing.T) {
+	ms := New(t.TempDir(), t.TempDir())
+	result, err := ms.resolvePercent(`before<%if:x%>HIDE<%endif%>after`, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "beforeafter" {
+		t.Errorf("expected %q, got %q", "beforeafter", result)
+	}
+}
+
+// ---
+
+func TestIfEmptyIsFalse(t *testing.T) {
+	ms := New(t.TempDir(), t.TempDir())
+	vars := map[string]string{"x": ""}
+	result, err := ms.resolvePercent(`<%if:x%>HIDE<%endif%>`, vars, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "" {
+		t.Errorf("expected empty, got %q", result)
+	}
+}
+
+// ---
+
+func TestIfElse(t *testing.T) {
+	ms := New(t.TempDir(), t.TempDir())
+	result, err := ms.resolvePercent(`<%if:x%>YES<%else%>NO<%endif%>`, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "NO" {
+		t.Errorf("expected %q, got %q", "NO", result)
+	}
+}
+
+// ---
+
+func TestIfElseTrue(t *testing.T) {
+	ms := New(t.TempDir(), t.TempDir())
+	vars := map[string]string{"x": "1"}
+	result, err := ms.resolvePercent(`<%if:x%>YES<%else%>NO<%endif%>`, vars, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "YES" {
+		t.Errorf("expected %q, got %q", "YES", result)
+	}
+}
+
+// ---
+
+func TestElseif(t *testing.T) {
+	ms := New(t.TempDir(), t.TempDir())
+	vars := map[string]string{"b": "1"}
+	result, err := ms.resolvePercent(`<%if:a%>A<%elseif:b%>B<%else%>C<%endif%>`, vars, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "B" {
+		t.Errorf("expected %q, got %q", "B", result)
+	}
+}
+
+// ---
+
+func TestElseifFirstTrue(t *testing.T) {
+	ms := New(t.TempDir(), t.TempDir())
+	vars := map[string]string{"a": "1", "b": "1"}
+	result, err := ms.resolvePercent(`<%if:a%>A<%elseif:b%>B<%else%>C<%endif%>`, vars, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "A" {
+		t.Errorf("expected %q, got %q", "A", result)
+	}
+}
+
+// ---
+
+func TestElseifFallthrough(t *testing.T) {
+	ms := New(t.TempDir(), t.TempDir())
+	result, err := ms.resolvePercent(`<%if:a%>A<%elseif:b%>B<%else%>C<%endif%>`, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "C" {
+		t.Errorf("expected %q, got %q", "C", result)
+	}
+}
+
+// ---
+
+func TestNestedIf(t *testing.T) {
+	ms := New(t.TempDir(), t.TempDir())
+	vars := map[string]string{"a": "1"}
+	result, err := ms.resolvePercent(`<%if:a%><%if:b%>INNER<%else%>ALT<%endif%><%endif%>`, vars, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "ALT" {
+		t.Errorf("expected %q, got %q", "ALT", result)
+	}
+}
+
+// ---
+
+func TestNestedIfParentFalse(t *testing.T) {
+	ms := New(t.TempDir(), t.TempDir())
+	vars := map[string]string{"b": "1"}
+	result, err := ms.resolvePercent(`<%if:a%><%if:b%>INNER<%endif%><%else%>OUT<%endif%>`, vars, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "OUT" {
+		t.Errorf("expected %q, got %q", "OUT", result)
+	}
+}
+
+// ---
+
+func TestUndefinedVarInSkippedBlock(t *testing.T) {
+	ms := New(t.TempDir(), t.TempDir())
+	// <%undef%> inside a false block should NOT error
+	result, err := ms.resolvePercent(`<%if:x%><%undef%><%endif%>ok`, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "ok" {
+		t.Errorf("expected %q, got %q", "ok", result)
+	}
+}
+
+// ---
+
+func TestUnclosedIf(t *testing.T) {
+	ms := New(t.TempDir(), t.TempDir())
+	vars := map[string]string{"x": "1"}
+	_, err := ms.resolvePercent(`<%if:x%>stuff`, vars, nil)
+	if err == nil {
+		t.Fatal("expected error for unclosed if block")
+	}
+}
+
+// ---
+
+func TestEndifWithoutIf(t *testing.T) {
+	ms := New(t.TempDir(), t.TempDir())
+	_, err := ms.resolvePercent(`<%endif%>`, nil, nil)
+	if err == nil {
+		t.Fatal("expected error for endif without if")
+	}
+}
+
+// ---
+
+func TestElseWithoutIf(t *testing.T) {
+	ms := New(t.TempDir(), t.TempDir())
+	_, err := ms.resolvePercent(`<%else%>`, nil, nil)
+	if err == nil {
+		t.Fatal("expected error for else without if")
+	}
+}
+
+// ---
+
 func TestDiamondInclude(t *testing.T) {
 	dir := t.TempDir()
 

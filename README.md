@@ -2,6 +2,7 @@
 
 **This is a build-time tool for assembling templates that will be embedded into a Go binary. It performs no input sanitization, no escaping of user-supplied data, and no protection against code injection. It is designed to run during development as part of `go generate`, not at runtime. Do not expose it to untrusted input.**
 
+
 Build-time template assembler for Go projects. Processes content files (HTML, CSS, JS) with percent-tag substitution, includes, skins (layouts), and generates Go embed code.
 
 ## Install
@@ -54,6 +55,27 @@ A skin is an HTML layout file in `_skins/` that uses percent tags:
 ```
 
 `<%%content%%>` is replaced with the processed body of the source file. Other front-matter variables (like `<%title%>`) are available with HTML escaping.
+
+### Conditionals
+
+Control blocks using single percent-tag syntax:
+
+```html
+<%if:user%>
+  <p>Welcome, <%user%></p>
+<%elseif:guest%>
+  <p>Guest access</p>
+<%else%>
+  <p>Please sign in</p>
+<%endif%>
+```
+
+- `<%if:var%>` — content is included if `var` is defined and non-empty
+- `<%elseif:var%>` — checked only if all previous branches were false
+- `<%else%>` — included if all previous branches were false
+- `<%endif%>` — closes the block
+
+Blocks can be nested. Undefined variables inside a false branch do not cause errors. Unmatched `<%endif%>`, `<%else%>`, or unclosed `<%if:...%>` blocks produce build-time errors.
 
 ### Includes
 
