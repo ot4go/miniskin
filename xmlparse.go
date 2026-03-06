@@ -12,6 +12,7 @@ import (
 
 type xmlMiniskin struct {
 	XMLName      xml.Name         `xml:"miniskin"`
+	SkinDir      string           `xml:"skin-dir,attr"`
 	Globals      []xmlVar         `xml:"globals>var"`
 	BucketList   *xmlBucketList   `xml:"bucket-list"`
 	ResourceList *xmlResourceList `xml:"resource-list"`
@@ -36,11 +37,13 @@ type xmlBucket struct {
 	ModuleName    string `xml:"module-name,attr"`
 	RecurseFolder string `xml:"recurse-folder,attr"`
 	Template      string `xml:"template,attr"`
+	SkinDir       string `xml:"skin-dir,attr"`
 }
 
 type xmlResourceList struct {
-	URLBase string    `xml:"urlbase,attr"`
-	Items   []xmlItem `xml:"item"`
+	URLBase  string    `xml:"urlbase,attr"`
+	SkinDir  string    `xml:"skin-dir,attr"`
+	Items    []xmlItem `xml:"item"`
 }
 
 type xmlItem struct {
@@ -70,6 +73,7 @@ type Bucket struct {
 	ModuleName string
 	Recurse    bool
 	Template   string
+	SkinDir    string
 }
 
 // Item represents a resource item from a miniskin.xml.
@@ -77,11 +81,12 @@ type Item struct {
 	Type    string
 	File    string
 	Src     string // source file; if set, item needs processing
-	URL     string
-	AltURL  string
-	Key     string
-	URLBase string
-	Dir     string
+	URL      string
+	AltURL   string
+	Key      string
+	URLBase  string
+	SkinDir  string
+	Dir      string
 	Index   int // position in the global embed list
 }
 
@@ -136,7 +141,7 @@ func parseMiniskinXML(path string) (*xmlMiniskin, error) {
 	return &ms, nil
 }
 
-func parseBucketList(xbl *xmlBucketList) BucketList {
+func parseBucketList(xbl *xmlBucketList, defaultSkinDir string) BucketList {
 	bl := BucketList{
 		Filename: xbl.Filename,
 		Module:   xbl.Module,
@@ -145,12 +150,17 @@ func parseBucketList(xbl *xmlBucketList) BucketList {
 		Buckets:  make([]Bucket, len(xbl.Buckets)),
 	}
 	for i, b := range xbl.Buckets {
+		skinDir := b.SkinDir
+		if skinDir == "" {
+			skinDir = defaultSkinDir
+		}
 		bl.Buckets[i] = Bucket{
 			Src:        b.Src,
 			Dst:        b.Dst,
 			ModuleName: b.ModuleName,
 			Recurse:    b.RecurseFolder == "all",
 			Template:   b.Template,
+			SkinDir:   skinDir,
 		}
 	}
 	return bl
@@ -164,18 +174,23 @@ func parseGlobals(vars []xmlVar) map[string]string {
 	return m
 }
 
-func parseResourceList(xrl *xmlResourceList, dir string) []Item {
+func parseResourceList(xrl *xmlResourceList, dir string, defaultSkinDir string) []Item {
+	skinDir := xrl.SkinDir
+	if skinDir == "" {
+		skinDir = defaultSkinDir
+	}
 	items := make([]Item, len(xrl.Items))
 	for i, xi := range xrl.Items {
 		items[i] = Item{
-			Type:    xi.Type,
-			File:    xi.File,
-			Src:     xi.Src,
-			URL:     xi.URL,
-			AltURL:  xi.AltURL,
-			Key:     xi.Key,
-			URLBase: xrl.URLBase,
-			Dir:     dir,
+			Type:     xi.Type,
+			File:     xi.File,
+			Src:      xi.Src,
+			URL:      xi.URL,
+			AltURL:   xi.AltURL,
+			Key:      xi.Key,
+			URLBase:  xrl.URLBase,
+			SkinDir: skinDir,
+			Dir:      dir,
 		}
 	}
 	return items
@@ -197,7 +212,7 @@ func (ms *Miniskin) collectItems(bucket Bucket) ([]Item, error) {
 				return err
 			}
 			if parsed.ResourceList != nil {
-				items := parseResourceList(parsed.ResourceList, filepath.Dir(path))
+				items := parseResourceList(parsed.ResourceList, filepath.Dir(path), bucket.SkinDir)
 				result = append(result, items...)
 			}
 		}

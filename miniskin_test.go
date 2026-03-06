@@ -440,6 +440,159 @@ func TestElseWithoutIf(t *testing.T) {
 
 // ---
 
+func TestSkinDirDefault(t *testing.T) {
+	dir := t.TempDir()
+
+	// _skin/basic.html (default dir)
+	os.MkdirAll(filepath.Join(dir, "_skin"), 0755)
+	os.WriteFile(filepath.Join(dir, "_skin", "basic.html"), []byte(`[DEFAULT]<%%content%%>[/DEFAULT]`), 0644)
+
+	// bucket "pages" with a src item that uses skin: basic
+	os.MkdirAll(filepath.Join(dir, "pages"), 0755)
+	os.WriteFile(filepath.Join(dir, "pages", "pages.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/pages">
+		<item type="html-template" src="page_src.html" file="page.html" />
+	</resource-list>
+</miniskin>`), 0644)
+	os.WriteFile(filepath.Join(dir, "pages", "page_src.html"), []byte("---\nskin: basic\n---\nHello"), 0644)
+
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="pages" dst="/gen.go" module-name="pages" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	ms := New(dir, dir)
+	result, err := ms.Run()
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+
+	data, _ := os.ReadFile(filepath.Join(dir, "pages", "page.html"))
+	if string(data) != "[DEFAULT]Hello[/DEFAULT]" {
+		t.Errorf("expected default _skin, got %q", string(data))
+	}
+	cleanup(result.Buckets[0].Items)
+}
+
+// ---
+
+func TestSkinDirOnMiniskin(t *testing.T) {
+	dir := t.TempDir()
+
+	// custom skin dir at root level
+	os.MkdirAll(filepath.Join(dir, "layouts"), 0755)
+	os.WriteFile(filepath.Join(dir, "layouts", "main.html"), []byte(`[LAYOUT]<%%content%%>[/LAYOUT]`), 0644)
+
+	os.MkdirAll(filepath.Join(dir, "pages"), 0755)
+	os.WriteFile(filepath.Join(dir, "pages", "pages.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/pages">
+		<item type="html-template" src="p_src.html" file="p.html" />
+	</resource-list>
+</miniskin>`), 0644)
+	os.WriteFile(filepath.Join(dir, "pages", "p_src.html"), []byte("---\nskin: main\n---\nBody"), 0644)
+
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin skin-dir="layouts">
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="pages" dst="/gen.go" module-name="pages" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	ms := New(dir, dir)
+	result, err := ms.Run()
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+
+	data, _ := os.ReadFile(filepath.Join(dir, "pages", "p.html"))
+	if string(data) != "[LAYOUT]Body[/LAYOUT]" {
+		t.Errorf("expected layouts/main.html skin, got %q", string(data))
+	}
+	cleanup(result.Buckets[0].Items)
+}
+
+// ---
+
+func TestSkinDirOnBucketOverridesRoot(t *testing.T) {
+	dir := t.TempDir()
+
+	// root-level skin dir (should be overridden)
+	os.MkdirAll(filepath.Join(dir, "layouts"), 0755)
+	os.WriteFile(filepath.Join(dir, "layouts", "wrap.html"), []byte(`[ROOT]<%%content%%>[/ROOT]`), 0644)
+
+	// bucket-level skin dir
+	os.MkdirAll(filepath.Join(dir, "app", "myskins"), 0755)
+	os.WriteFile(filepath.Join(dir, "app", "myskins", "wrap.html"), []byte(`[BUCKET]<%%content%%>[/BUCKET]`), 0644)
+
+	os.MkdirAll(filepath.Join(dir, "app"), 0755)
+	os.WriteFile(filepath.Join(dir, "app", "app.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/app">
+		<item type="html-template" src="v_src.html" file="v.html" />
+	</resource-list>
+</miniskin>`), 0644)
+	os.WriteFile(filepath.Join(dir, "app", "v_src.html"), []byte("---\nskin: wrap\n---\nContent"), 0644)
+
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin skin-dir="layouts">
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" skin-dir="app/myskins" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	ms := New(dir, dir)
+	result, err := ms.Run()
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+
+	data, _ := os.ReadFile(filepath.Join(dir, "app", "v.html"))
+	if string(data) != "[BUCKET]Content[/BUCKET]" {
+		t.Errorf("expected bucket skin-dir override, got %q", string(data))
+	}
+	cleanup(result.Buckets[0].Items)
+}
+
+// ---
+
+func TestSkinDirOnResourceListOverridesBucket(t *testing.T) {
+	dir := t.TempDir()
+
+	// bucket-level skin dir (should be overridden by resource-list)
+	os.MkdirAll(filepath.Join(dir, "bskins"), 0755)
+	os.WriteFile(filepath.Join(dir, "bskins", "base.html"), []byte(`[BUCKET]<%%content%%>[/BUCKET]`), 0644)
+
+	// resource-list level skin dir
+	os.MkdirAll(filepath.Join(dir, "rskins"), 0755)
+	os.WriteFile(filepath.Join(dir, "rskins", "base.html"), []byte(`[RESLIST]<%%content%%>[/RESLIST]`), 0644)
+
+	os.MkdirAll(filepath.Join(dir, "mod"), 0755)
+	os.WriteFile(filepath.Join(dir, "mod", "mod.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/mod" skin-dir="rskins">
+		<item type="html-template" src="x_src.html" file="x.html" />
+	</resource-list>
+</miniskin>`), 0644)
+	os.WriteFile(filepath.Join(dir, "mod", "x_src.html"), []byte("---\nskin: base\n---\nHi"), 0644)
+
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="mod" dst="/gen.go" module-name="mod" skin-dir="bskins" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	ms := New(dir, dir)
+	result, err := ms.Run()
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+
+	data, _ := os.ReadFile(filepath.Join(dir, "mod", "x.html"))
+	if string(data) != "[RESLIST]Hi[/RESLIST]" {
+		t.Errorf("expected resource-list skin-dir override, got %q", string(data))
+	}
+	cleanup(result.Buckets[0].Items)
+}
+
+// ---
+
 func TestDiamondInclude(t *testing.T) {
 	dir := t.TempDir()
 

@@ -8,8 +8,8 @@ import (
 
 // applySkin loads the skin file, sets the "content" variable to the processed body,
 // merges front-matter vars, and resolves all percent tags in the skin.
-func (ms *Miniskin) applySkin(skinName string, body string, fmVars map[string]string) (string, error) {
-	skinPath := filepath.Join(ms.contentPath, "_skins", skinName+".html")
+func (ms *Miniskin) applySkin(skinName string, body string, fmVars map[string]string, skinDir string) (string, error) {
+	skinPath := filepath.Join(ms.contentPath, skinDir, skinName+".html")
 
 	data, err := os.ReadFile(skinPath)
 	if err != nil {

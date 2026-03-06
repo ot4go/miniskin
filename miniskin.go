@@ -65,7 +65,12 @@ func (ms *Miniskin) Run() (*Result, error) {
 
 	ms.globals = parseGlobals(root.Globals)
 
-	bl := parseBucketList(root.BucketList)
+	skinDir := root.SkinDir
+	if skinDir == "" {
+		skinDir = "_skin"
+	}
+
+	bl := parseBucketList(root.BucketList, skinDir)
 	result := &Result{BucketList: bl}
 
 	idx := 0
@@ -131,7 +136,7 @@ func (ms *Miniskin) processItem(item *Item) error {
 
 	// Apply skin if declared
 	if skinName != "" {
-		body, err = ms.applySkin(skinName, body, fmVars)
+		body, err = ms.applySkin(skinName, body, fmVars, item.SkinDir)
 		if err != nil {
 			return err
 		}
