@@ -1,11 +1,13 @@
 ## Percent-tag syntaxes (4 equivalent forms)
 
-| Syntax | Escaping | Use case |
-|---|---|---|
-| `<%var%>` | HTML-escaped | Template variables |
-| `<%%var%%>` | Literal | Variables, includes, mockup directives |
-| `<!--%var%-->` | HTML-escaped | Browser-invisible (mockup HTML) |
-| `<!--%%var%%-->` | Literal | Browser-invisible (mockup HTML) |
+| Syntax | Use case |
+|---|---|
+| `<%var%>` | Template variables |
+| `<%%var%%>` | Variables, includes, mockup directives |
+| `<!--%var%-->` | Browser-invisible (mockup HTML) |
+| `<!--%%var%%-->` | Browser-invisible (mockup HTML) |
+
+All four syntaxes behave the same. Default escape is none. Configure per file extension with `<escape>` in XML.
 
 Comment forms (`<!--%...%-->`, `<!--%%...%%-->`) are HTML comments — invisible in the browser, ideal for MDD mockup files.
 
@@ -23,16 +25,16 @@ Comment forms (`<!--%...%-->`, `<!--%%...%%-->`) are HTML comments — invisible
 | `end-mockup-import` / `end` | Close mockup-import block |
 | `include:path` | Include file (double tags only, resolved recursively) |
 | `note:text` | Discarded silently |
-| `echo:text` | Emit text (escaped in single, literal in double) |
+| `echo:text` | Emit text (uses default escape) |
 
 ## Escape types
 
-Explicit escape prefix overrides default (single=html, double=none):
+Explicit escape prefix overrides default:
 `<%url:var%>`, `<%%js:var%%>`, `<!--%sql:var%-->`, etc.
 
 Prefixes: `html`, `xml`, `url`, `js`, `css`, `json`, `sql`, `sqlt` (sql + LIKE `_%` escaping)
 
 Echo with escape prefix: `<%js:echo:it's "ok"%>` → `it\'s \"ok\"`. Plain `<%echo:text%>` uses configured default escape.
 
-Default escape configurable per file extension: `<escape ext="*.js" as="js" />` in any XML block.
+Default escape is none. Configurable per file extension: `<escape ext="*.html" as="html" />` in any XML block. Use `<escape ext="*" as="html" />` at `<miniskin>` level to escape everything as HTML.
 Item-level override: `<item escape="sql" .../>`. Cascades like skin-dir and mux-include.

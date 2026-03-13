@@ -2,7 +2,6 @@ package miniskin
 
 import (
 	"fmt"
-	"html"
 	"os"
 	"path/filepath"
 	"strings"
@@ -834,11 +833,11 @@ func (ms *Miniskin) handleSingleTag(rawTag string, vars map[string]string, block
 				out.WriteString("<%" + tagStr + "%>")
 			} else {
 				idx := strings.Index(rawTag, "echo:")
-				escapeFn := ms.defaultEscapeFn
-				if escapeFn == nil {
-					escapeFn = escapeHTML
+				if ms.defaultEscapeFn != nil {
+					out.WriteString(ms.defaultEscapeFn(rawTag[idx+5:]))
+				} else {
+					out.WriteString(rawTag[idx+5:])
 				}
-				out.WriteString(escapeFn(rawTag[idx+5:]))
 			}
 		}
 
@@ -951,7 +950,7 @@ func (ms *Miniskin) resolveSingleTag(name string, vars map[string]string) (strin
 	if ms.defaultEscapeFn != nil {
 		return ms.defaultEscapeFn(val), nil
 	}
-	return html.EscapeString(val), nil
+	return val, nil
 }
 
 // ---

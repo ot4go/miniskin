@@ -748,8 +748,8 @@ func TestCommentSingleVar(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result != "Hello Sam&amp;Co!" {
-		t.Errorf("expected %q, got %q", "Hello Sam&amp;Co!", result)
+	if result != "Hello Sam&Co!" {
+		t.Errorf("expected %q, got %q", "Hello Sam&Co!", result)
 	}
 }
 
@@ -801,7 +801,7 @@ func TestEchoSingleEscaped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	expected := "&lt;b&gt;bold&lt;/b&gt;"
+	expected := "<b>bold</b>"
 	if result != expected {
 		t.Errorf("expected %q, got %q", expected, result)
 	}
@@ -933,7 +933,7 @@ policybanner: 1
 		{"policy banner shown", "DO NOT CLOCK FOR OTHERS"},
 		{"include resolved", `<div class="clock" id="clock">--:--</div>`},
 		{"global var escaped", "MD-Clock"},
-		{"single echo escaped", "&lt;form&gt;"},
+		{"single echo literal", "<form>"},
 		{"double echo literal", "{{.Username}}"},
 		{"note stripped", ""},
 	}
@@ -4097,10 +4097,10 @@ func TestResolveDefaultEscapeByExtension(t *testing.T) {
 	if !strings.Contains(fn("'"), `\`) {
 		t.Errorf("css escape expected for .css, got %q", fn("'"))
 	}
-	// Unknown extension → default HTML
+	// Unknown extension → no escaping (nil)
 	fn = resolveDefaultEscape("data.txt", "", rules)
-	if fn("'") != "&#39;" {
-		t.Errorf("default html escape expected for .txt")
+	if fn != nil {
+		t.Errorf("expected nil (no escape) for .txt, got non-nil")
 	}
 }
 

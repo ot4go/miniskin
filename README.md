@@ -42,10 +42,10 @@ Four equivalent syntaxes, resolved at generation time:
 
 | Syntax | Type | Behavior |
 |---|---|---|
-| `<%var%>` | single | HTML-escaped value |
-| `<%%var%%>` | double | literal (unescaped) value |
-| `<!--%var%-->` | single comment | HTML-escaped (browser-invisible) |
-| `<!--%%var%%-->` | double comment | literal (browser-invisible) |
+| `<%var%>` | single | value (uses default escape) |
+| `<%%var%%>` | double | value (uses default escape) |
+| `<!--%var%-->` | single comment | value (browser-invisible) |
+| `<!--%%var%%-->` | double comment | value (browser-invisible) |
 
 Comment forms (`<!--%...%-->`, `<!--%%...%%-->`) are HTML comments — invisible in the browser, suitable for mockup HTML files that need to render standalone.
 
@@ -53,7 +53,7 @@ Double percent tags also support includes: `<%%include:/path/to/file%%>`
 
 ### Escape types
 
-Single tags default to HTML escaping (`escape="html"`). Double tags default to no escaping (`escape="none"`). An explicit escape prefix overrides the default in any tag syntax:
+All tags default to no escaping. Use `<escape>` in XML to configure default escaping per file extension, or use an explicit escape prefix in any tag syntax:
 
 ```
 <%url:var%>          URL-encoded value
@@ -93,7 +93,7 @@ The `<escape>` element configures the default escape type based on file extensio
 </miniskin>
 ```
 
-When processing a source file, the default escape for single tags (`<%var%>`) is determined by matching the file against `<escape>` rules. If no rule matches, HTML escaping is used.
+When processing a source file, the default escape is determined by matching the file against `<escape>` rules. If no rule matches, no escaping is applied.
 
 Individual items can override with `escape="type"`:
 
@@ -118,13 +118,12 @@ Position of `<escape>` elements within a block is irrelevant. Child rules overri
 | `end-mockup-export` | single/double | Close mockup-export block (specific alias) |
 | `end-mockup-import` | single/double | Close mockup-import block (specific alias) |
 | `note:text` | single/double | Discarded silently (comment) |
-| `echo:text` | single | Emit text with HTML escaping |
-| `echo:text` | double | Emit text literally (no escaping) |
+| `echo:text` | single/double | Emit text (uses default escape) |
 | `include:/path` | double only | Include file contents (resolved recursively) |
 | `mockup-export:path [mode]` | all | Extract content to file (mockup mode only) |
 | `mockup-import:path` | all | Insert file contents (mockup mode only) |
 
-All directives work in all four tag syntaxes except `include:`, which requires double percent tags (single-percent tags HTML-escape the output). Examples:
+All directives work in all four tag syntaxes except `include:`, which requires double percent tags. Examples:
 
 ```html
 <!--%%if:mockup%%-->

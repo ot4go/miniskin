@@ -142,7 +142,7 @@ func cascadeEscapeRules(parent, child []xmlEscape) []xmlEscape {
 // resolveDefaultEscape finds the escape function for a filename based on cascaded rules.
 // If the item has an explicit escape attribute, it takes priority.
 // Otherwise, rules are matched last-to-first (child overrides parent).
-// Returns escapeHTML if no rule matches.
+// Returns nil (no escaping) if no rule matches.
 func resolveDefaultEscape(filename string, itemEscape string, rules []xmlEscape) func(string) string {
 	// Item-level escape attribute takes priority
 	if itemEscape != "" {
@@ -158,5 +158,5 @@ func resolveDefaultEscape(filename string, itemEscape string, rules []xmlEscape)
 			}
 		}
 	}
-	return escapeHTML
+	return nil
 }
