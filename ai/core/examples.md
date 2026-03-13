@@ -29,6 +29,12 @@ miniskin.MiniskinGenerate(contentPath, modulesPath)
 
 // Single-file negative transform
 neg := miniskin.TransformNegative(content)
+
+// Combine subdirectory XMLs into one
+miniskin.CombineDir("/path/to/app")
+
+// Split nested resource-lists back into separate XMLs
+miniskin.SplitXML("/path/to/app/app.miniskin.xml")
 ```
 
 ## CLI
@@ -41,4 +47,6 @@ miniskin generate-claude-skill                     # generate Claude Code SKILL.
 miniskin mockup update                             # export + refresh imports
 miniskin mockup negative -src m.html -dst n.html   # single file negative
 miniskin deps                                      # show dependency map
+miniskin combine content/app                       # combine XMLs into one
+miniskin split content/app/app.miniskin.xml         # split back into subdirectories
 ```

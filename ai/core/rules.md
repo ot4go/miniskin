@@ -10,8 +10,10 @@
 - `end` is universal closer (works for if, mockup-export, mockup-import blocks)
 - Specific closers: `end-if` (if only), `end-mockup-export` (export only), `end-mockup-import` (import only)
 - `TransformNegative` replaces export...end blocks with import...end-mockup-import blocks
-- Skin directory cascades: `<miniskin>` → `<bucket>` → `<resource-list>` (default: `_skin`)
-- Mux-include/mux-exclude cascades: `<miniskin>` → `<bucket-list>` → `<bucket>` → `<resource-list>` (default: `mux-include="*"`, `mux-exclude=""`)
+- Resource lists can be chained (multiple at the same level) and nested (with `src` for relative path resolution)
+- Skin directory cascades: `<miniskin>` → `<bucket>` → `<resource-list>` → nested `<resource-list>` (default: `_skin`)
+- Mux-include/mux-exclude cascades: `<miniskin>` → `<bucket-list>` → `<bucket>` → `<resource-list>` → nested `<resource-list>` (default: `mux-include="*"`, `mux-exclude=""`)
+- Escape rules cascade through the same hierarchy, including nested resource-lists
 - Items not matching `mux-include` or matching `mux-exclude` get `nomux` added automatically
 - Explicit `nomux` in item type always takes precedence
 - Save-mode cascades: `<mockup-list>` → `<item>` → tag-level mode

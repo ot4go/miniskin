@@ -11,30 +11,30 @@ import (
 // --- XML structures
 
 type xmlMiniskin struct {
-	XMLName      xml.Name         `xml:"miniskin"`
-	SkinDir      string           `xml:"skin-dir,attr"`
-	Log          string           `xml:"log,attr"`
-	MuxInclude   string           `xml:"mux-include,attr"`
-	MuxExclude   string           `xml:"mux-exclude,attr"`
-	Globals      []xmlVar         `xml:"globals>var"`
-	Escapes      []xmlEscape      `xml:"escape"`
-	BucketList   *xmlBucketList   `xml:"bucket-list"`
-	ResourceList *xmlResourceList `xml:"resource-list"`
-	MockupList   *xmlMockupList   `xml:"mockup-list"`
+	XMLName       xml.Name          `xml:"miniskin"`
+	SkinDir       string            `xml:"skin-dir,attr,omitempty"`
+	Log           string            `xml:"log,attr,omitempty"`
+	MuxInclude    string            `xml:"mux-include,attr,omitempty"`
+	MuxExclude    string            `xml:"mux-exclude,attr,omitempty"`
+	Globals       []xmlVar          `xml:"globals>var,omitempty"`
+	Escapes       []xmlEscape       `xml:"escape,omitempty"`
+	BucketList    *xmlBucketList    `xml:"bucket-list,omitempty"`
+	ResourceLists []xmlResourceList `xml:"resource-list,omitempty"`
+	MockupList    *xmlMockupList    `xml:"mockup-list,omitempty"`
 }
 
 type xmlMockupList struct {
-	SkinDir  string          `xml:"skin-dir,attr"`
-	SaveMode string          `xml:"save-mode,attr"`
-	Vars     []xmlVar        `xml:"var"`
-	Items    []xmlMockupItem `xml:"item"`
+	SkinDir  string          `xml:"skin-dir,attr,omitempty"`
+	SaveMode string          `xml:"save-mode,attr,omitempty"`
+	Vars     []xmlVar        `xml:"var,omitempty"`
+	Items    []xmlMockupItem `xml:"item,omitempty"`
 }
 
 type xmlMockupItem struct {
 	Src      string   `xml:"src,attr"`
-	Negative string   `xml:"negative,attr"`
-	SaveMode string   `xml:"save-mode,attr"`
-	Vars     []xmlVar `xml:"var"`
+	Negative string   `xml:"negative,attr,omitempty"`
+	SaveMode string   `xml:"save-mode,attr,omitempty"`
+	Vars     []xmlVar `xml:"var,omitempty"`
 }
 
 type xmlVar struct {
@@ -50,43 +50,47 @@ type xmlEscape struct {
 type xmlBucketList struct {
 	Filename   string      `xml:"filename,attr"`
 	Module     string      `xml:"module,attr"`
-	Import     string      `xml:"import,attr"`
-	Template   string      `xml:"template,attr"`
-	MuxInclude string      `xml:"mux-include,attr"`
-	MuxExclude string      `xml:"mux-exclude,attr"`
-	Escapes    []xmlEscape `xml:"escape"`
+	Import     string      `xml:"import,attr,omitempty"`
+	Template   string      `xml:"template,attr,omitempty"`
+	MuxInclude string      `xml:"mux-include,attr,omitempty"`
+	MuxExclude string      `xml:"mux-exclude,attr,omitempty"`
+	Escapes    []xmlEscape `xml:"escape,omitempty"`
 	Buckets    []xmlBucket `xml:"bucket"`
 }
 
 type xmlBucket struct {
-	Src           string      `xml:"src,attr"`
-	Dst           string      `xml:"dst,attr"`
-	ModuleName    string      `xml:"module-name,attr"`
-	RecurseFolder string      `xml:"recurse-folder,attr"`
-	Template      string      `xml:"template,attr"`
-	SkinDir       string      `xml:"skin-dir,attr"`
-	MuxInclude    string      `xml:"mux-include,attr"`
-	MuxExclude    string      `xml:"mux-exclude,attr"`
-	Escapes       []xmlEscape `xml:"escape"`
+	Src           string             `xml:"src,attr"`
+	Dst           string             `xml:"dst,attr"`
+	ModuleName    string             `xml:"module-name,attr"`
+	RecurseFolder string             `xml:"recurse-folder,attr,omitempty"`
+	Template      string             `xml:"template,attr,omitempty"`
+	SkinDir       string             `xml:"skin-dir,attr,omitempty"`
+	MuxInclude    string             `xml:"mux-include,attr,omitempty"`
+	MuxExclude    string             `xml:"mux-exclude,attr,omitempty"`
+	Escapes       []xmlEscape        `xml:"escape,omitempty"`
+	ResourceLists []xmlResourceList  `xml:"resource-list,omitempty"`
+	MockupLists   []xmlMockupList    `xml:"mockup-list,omitempty"`
 }
 
 type xmlResourceList struct {
-	URLBase    string      `xml:"urlbase,attr"`
-	SkinDir    string      `xml:"skin-dir,attr"`
-	MuxInclude string      `xml:"mux-include,attr"`
-	MuxExclude string      `xml:"mux-exclude,attr"`
-	Escapes    []xmlEscape `xml:"escape"`
-	Items      []xmlItem   `xml:"item"`
+	Src           string             `xml:"src,attr,omitempty"`
+	URLBase       string             `xml:"urlbase,attr,omitempty"`
+	SkinDir       string             `xml:"skin-dir,attr,omitempty"`
+	MuxInclude    string             `xml:"mux-include,attr,omitempty"`
+	MuxExclude    string             `xml:"mux-exclude,attr,omitempty"`
+	Escapes       []xmlEscape        `xml:"escape,omitempty"`
+	Items         []xmlItem          `xml:"item,omitempty"`
+	ResourceLists []xmlResourceList  `xml:"resource-list,omitempty"`
 }
 
 type xmlItem struct {
-	Type   string `xml:"type,attr"`
-	File   string `xml:"file,attr"`
-	Src    string `xml:"src,attr"`
-	URL    string `xml:"url,attr"`
-	AltURL string `xml:"alt-url-abs,attr"`
-	Key    string `xml:"key,attr"`
-	Escape string `xml:"escape,attr"`
+	Type   string `xml:"type,attr,omitempty"`
+	File   string `xml:"file,attr,omitempty"`
+	Src    string `xml:"src,attr,omitempty"`
+	URL    string `xml:"url,attr,omitempty"`
+	AltURL string `xml:"alt-url-abs,attr,omitempty"`
+	Key    string `xml:"key,attr,omitempty"`
+	Escape string `xml:"escape,attr,omitempty"`
 }
 
 // --- Parsed types
@@ -106,11 +110,13 @@ type Bucket struct {
 	Dst        string
 	ModuleName string
 	Template   string // custom template file for bucket generation
-	recurse     bool
-	skinDir     string
-	muxInclude  string      // resolved cascaded mux-include pattern (default: "*")
-	muxExclude  string      // resolved cascaded mux-exclude pattern (default: "")
-	escapeRules []xmlEscape // cascaded escape rules
+	recurse             bool
+	skinDir             string
+	muxInclude          string             // resolved cascaded mux-include pattern (default: "*")
+	muxExclude          string             // resolved cascaded mux-exclude pattern (default: "")
+	escapeRules         []xmlEscape        // cascaded escape rules
+	inlineResourceLists []xmlResourceList  // resource-lists defined inline in the bucket element
+	inlineMockupLists   []xmlMockupList    // mockup-lists defined inline in the bucket element
 }
 
 // Item represents a resource item from a miniskin.xml.
@@ -250,15 +256,17 @@ func parseBucketList(xbl *xmlBucketList, defaultSkinDir string, parentMuxInclude
 			skinDir = defaultSkinDir
 		}
 		bl.Buckets[i] = Bucket{
-			Src:         b.Src,
-			Dst:         b.Dst,
-			ModuleName:  b.ModuleName,
-			Template:    b.Template,
-			recurse:     b.RecurseFolder == "all",
-			skinDir:     skinDir,
-			muxInclude:  cascadeMux(blInclude, b.MuxInclude),
-			muxExclude:  cascadeMux(blExclude, b.MuxExclude),
-			escapeRules: cascadeEscapeRules(blEscapes, b.Escapes),
+			Src:                 b.Src,
+			Dst:                 b.Dst,
+			ModuleName:          b.ModuleName,
+			Template:            b.Template,
+			recurse:             b.RecurseFolder == "all",
+			skinDir:             skinDir,
+			muxInclude:          cascadeMux(blInclude, b.MuxInclude),
+			muxExclude:          cascadeMux(blExclude, b.MuxExclude),
+			escapeRules:         cascadeEscapeRules(blEscapes, b.Escapes),
+			inlineResourceLists: b.ResourceLists,
+			inlineMockupLists:   b.MockupLists,
 		}
 	}
 	return bl
@@ -273,17 +281,22 @@ func parseGlobals(vars []xmlVar) map[string]string {
 }
 
 func parseResourceList(xrl *xmlResourceList, dir string, defaultSkinDir string, parentMuxInclude, parentMuxExclude string, parentEscapeRules []xmlEscape) []Item {
+	// Resolve dir: if this resource-list has a src, adjust dir
+	if xrl.Src != "" {
+		dir = filepath.Join(dir, xrl.Src)
+	}
+
 	skinDir := xrl.SkinDir
 	if skinDir == "" {
 		skinDir = defaultSkinDir
 	}
-	// Cascade mux: parent (bucket) → resource-list
+	// Cascade mux: parent → resource-list
 	rlInclude := cascadeMux(parentMuxInclude, xrl.MuxInclude)
 	rlExclude := cascadeMux(parentMuxExclude, xrl.MuxExclude)
 	rlEscapes := cascadeEscapeRules(parentEscapeRules, xrl.Escapes)
 
-	items := make([]Item, len(xrl.Items))
-	for i, xi := range xrl.Items {
+	var items []Item
+	for _, xi := range xrl.Items {
 		itemType := xi.Type
 		// Apply nomux automatically if item is excluded by mux patterns
 		if !hasTypeFlag(itemType, "nomux") && isExcludedByMux(xi.File, rlInclude, rlExclude) {
@@ -293,7 +306,7 @@ func parseResourceList(xrl *xmlResourceList, dir string, defaultSkinDir string, 
 				itemType += ",nomux"
 			}
 		}
-		items[i] = Item{
+		items = append(items, Item{
 			Type:        itemType,
 			File:        xi.File,
 			Src:         xi.Src,
@@ -305,8 +318,15 @@ func parseResourceList(xrl *xmlResourceList, dir string, defaultSkinDir string, 
 			dir:         dir,
 			escapeRules: rlEscapes,
 			escape:      xi.Escape,
-		}
+		})
 	}
+
+	// Recurse into nested resource-lists
+	for i := range xrl.ResourceLists {
+		childItems := parseResourceList(&xrl.ResourceLists[i], dir, skinDir, rlInclude, rlExclude, rlEscapes)
+		items = append(items, childItems...)
+	}
+
 	return items
 }
 
@@ -314,6 +334,26 @@ func parseResourceList(xrl *xmlResourceList, dir string, defaultSkinDir string, 
 // parses them, and calls fn for each parsed result.
 func (ms *Miniskin) walkBucket(bucket Bucket, fn func(parsed *xmlMiniskin, dir string) error) error {
 	srcDir := filepath.Join(ms.contentPath, bucket.Src)
+
+	// Process inline resource-lists and mockup-lists from the bucket element
+	if len(bucket.inlineResourceLists) > 0 || len(bucket.inlineMockupLists) > 0 {
+		synthetic := &xmlMiniskin{
+			ResourceLists: bucket.inlineResourceLists,
+		}
+		if len(bucket.inlineMockupLists) > 0 {
+			synthetic.MockupList = &bucket.inlineMockupLists[0]
+		}
+		if err := fn(synthetic, srcDir); err != nil {
+			return err
+		}
+		for i := 1; i < len(bucket.inlineMockupLists); i++ {
+			ml := bucket.inlineMockupLists[i]
+			s := &xmlMiniskin{MockupList: &ml}
+			if err := fn(s, srcDir); err != nil {
+				return err
+			}
+		}
+	}
 
 	visitFile := func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -357,8 +397,8 @@ func (ms *Miniskin) walkBucket(bucket Bucket, fn func(parsed *xmlMiniskin, dir s
 func (ms *Miniskin) collectItems(bucket Bucket) ([]Item, error) {
 	var result []Item
 	err := ms.walkBucket(bucket, func(parsed *xmlMiniskin, dir string) error {
-		if parsed.ResourceList != nil {
-			items := parseResourceList(parsed.ResourceList, dir, bucket.skinDir, bucket.muxInclude, bucket.muxExclude, bucket.escapeRules)
+		for i := range parsed.ResourceLists {
+			items := parseResourceList(&parsed.ResourceLists[i], dir, bucket.skinDir, bucket.muxInclude, bucket.muxExclude, bucket.escapeRules)
 			result = append(result, items...)
 		}
 		return nil

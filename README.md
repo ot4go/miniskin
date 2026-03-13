@@ -343,6 +343,8 @@ Nested `mockup-export` blocks each produce one `mockup-import...end-mockup-impor
 | `MiniskinGenerate(contentPath, modulesPath, verbosity...)` | Build embed assets + codegen (no mockup processing) |
 | `MiniskinMockupUpdate(contentPath, modulesPath, verbosity...)` | Deps check + mockup export + refresh imports |
 | `TransformNegative(content)` | Transform a single mockup string into a negative template |
+| `CombineDir(dir)` | Combine subdirectory XMLs into a single XML with nested resource-lists |
+| `SplitXML(xmlPath)` | Split nested resource-lists into separate XMLs per subdirectory |
 
 ### Types
 
@@ -445,7 +447,7 @@ The root XML file (in `contentPath`) declares globals, escape rules, the bucket 
 
 ### Subdirectory
 
-Subdirectory `*.miniskin.xml` files contain a `<resource-list>` and/or a `<mockup-list>`:
+Subdirectory `*.miniskin.xml` files contain one or more `<resource-list>` elements and/or a `<mockup-list>`:
 
 ```xml
 <miniskin>
@@ -462,6 +464,24 @@ Subdirectory `*.miniskin.xml` files contain a `<resource-list>` and/or a `<mocku
   </mockup-list>
 </miniskin>
 ```
+
+Resource lists can be **chained** (multiple at the same level) and **nested** (child resource-lists inside a parent). A nested `<resource-list>` uses `src` to set its base directory relative to the parent:
+
+```xml
+<miniskin>
+  <resource-list urlbase="/assets">
+    <item type="static" file="app.css" />
+  </resource-list>
+  <resource-list urlbase="/pages">
+    <item type="static" file="index.html" />
+    <resource-list src="login" urlbase="/login">
+      <item type="static" file="signin.html" />
+    </resource-list>
+  </resource-list>
+</miniskin>
+```
+
+Attributes `skin-dir`, `mux-include`, `mux-exclude`, and `<escape>` rules cascade from parent to child resource-lists, following the same override pattern used throughout the XML hierarchy.
 
 ### Items
 
@@ -699,6 +719,8 @@ Commands:
   mockup update          Export mockup pieces + Refresh imports
   mockup negative        Transform a mockup file into a negative template
   deps                   Show dependency map and processing order
+  combine <dir>          Combine subdirectory XMLs into one
+  split <file>           Split nested resource-lists into separate XMLs
 
 Flags:
   -content string        path to content directory (default ".")
@@ -727,6 +749,8 @@ miniskin generate-claude-skill -dst path/SKILL.md -force
 miniskin mockup update
 miniskin mockup negative -src mockup_login.html -dst login_negative.html
 miniskin deps
+miniskin combine content/app
+miniskin split content/app/app.miniskin.xml
 ```
 
 ## File structure example

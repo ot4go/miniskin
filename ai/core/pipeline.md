@@ -47,6 +47,21 @@ title: Sign In
 </miniskin>
 ```
 
+Resource lists can be **chained** (multiple at the same level) and **nested** (with `src` for relative path resolution):
+
+```xml
+<miniskin>
+  <resource-list urlbase="/assets">
+    <item type="static" file="app.css" />
+    <resource-list src="login" urlbase="/login">
+      <item src="signin_src.html" file="signin.html" />
+    </resource-list>
+  </resource-list>
+</miniskin>
+```
+
+Nested resource lists inherit `skin-dir`, `mux-include`, `mux-exclude`, and `<escape>` rules from their parent.
+
 ## Item attributes
 
 - `file` — output filename (what gets embedded)

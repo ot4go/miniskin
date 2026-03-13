@@ -4226,3 +4226,908 @@ func TestEscapeItemAttributeOverride(t *testing.T) {
 		t.Errorf("got %q, want %q", string(data), "O''Brien")
 	}
 }
+
+// ---
+
+func TestChainedResourceLists(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app"), 0755)
+
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "app.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/assets">
+		<item type="static" file="app.css" />
+	</resource-list>
+	<resource-list urlbase="/pages">
+		<item type="static" file="index.html" />
+	</resource-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "app.css"), []byte("body{}"), 0644)
+	os.WriteFile(filepath.Join(dir, "app", "index.html"), []byte("<h1>Hi</h1>"), 0644)
+
+	ms := newSilent(dir, dir)
+	result, err := ms.BuildEmbed()
+	if err != nil {
+		t.Fatalf("BuildEmbed failed: %v", err)
+	}
+
+	items := result.Buckets[0].Items
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(items))
+	}
+	if items[0].File != "app.css" || items[0].urlBase != "/assets" {
+		t.Errorf("item 0: expected app.css with /assets, got %s with %s", items[0].File, items[0].urlBase)
+	}
+	if items[1].File != "index.html" || items[1].urlBase != "/pages" {
+		t.Errorf("item 1: expected index.html with /pages, got %s with %s", items[1].File, items[1].urlBase)
+	}
+}
+
+// ---
+
+func TestNestedResourceListWithSrc(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app", "sub"), 0755)
+
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "app.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/root">
+		<item type="static" file="top.css" />
+		<resource-list src="sub" urlbase="/sub">
+			<item type="static" file="deep.css" />
+		</resource-list>
+	</resource-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "top.css"), []byte("top{}"), 0644)
+	os.WriteFile(filepath.Join(dir, "app", "sub", "deep.css"), []byte("deep{}"), 0644)
+
+	ms := newSilent(dir, dir)
+	result, err := ms.BuildEmbed()
+	if err != nil {
+		t.Fatalf("BuildEmbed failed: %v", err)
+	}
+
+	items := result.Buckets[0].Items
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(items))
+	}
+	if items[0].File != "top.css" {
+		t.Errorf("item 0: expected top.css, got %s", items[0].File)
+	}
+	// deep.css should resolve to app/sub/deep.css
+	if items[1].File != "deep.css" {
+		t.Errorf("item 1: expected deep.css, got %s", items[1].File)
+	}
+	if items[1].dir != filepath.Join(dir, "app", "sub") {
+		t.Errorf("item 1 dir: expected %s, got %s", filepath.Join(dir, "app", "sub"), items[1].dir)
+	}
+	if items[1].urlBase != "/sub" {
+		t.Errorf("item 1 urlBase: expected /sub, got %s", items[1].urlBase)
+	}
+}
+
+// ---
+
+func TestNestedResourceListCascadesSkinDir(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app", "sub"), 0755)
+	os.MkdirAll(filepath.Join(dir, "pskins"), 0755)
+
+	os.WriteFile(filepath.Join(dir, "pskins", "base.html"), []byte(`[P]<%%content%%>[/P]`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "app.miniskin.xml"), []byte(`<miniskin>
+	<resource-list skin-dir="pskins">
+		<resource-list src="sub">
+			<item type="html-template" src="x_src.html" file="x.html" />
+		</resource-list>
+	</resource-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "sub", "x_src.html"), []byte("---\nskin: base\n---\nHello"), 0644)
+
+	ms := newSilent(dir, dir)
+	result, err := ms.Run()
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+	defer cleanup(result.Buckets[0].Items)
+
+	data, _ := os.ReadFile(filepath.Join(dir, "app", "sub", "x.html"))
+	if string(data) != "[P]Hello[/P]" {
+		t.Errorf("expected cascaded skin, got %q", string(data))
+	}
+}
+
+// ---
+
+func TestNestedResourceListCascadesMux(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app", "sub"), 0755)
+
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "app.miniskin.xml"), []byte(`<miniskin>
+	<resource-list mux-exclude="*.html">
+		<item type="static" file="top.css" />
+		<resource-list src="sub">
+			<item type="static" file="page.html" />
+			<item type="static" file="style.css" />
+		</resource-list>
+	</resource-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "top.css"), []byte(""), 0644)
+	os.WriteFile(filepath.Join(dir, "app", "sub", "page.html"), []byte(""), 0644)
+	os.WriteFile(filepath.Join(dir, "app", "sub", "style.css"), []byte(""), 0644)
+
+	ms := newSilent(dir, dir)
+	result, err := ms.BuildEmbed()
+	if err != nil {
+		t.Fatalf("BuildEmbed failed: %v", err)
+	}
+
+	items := result.Buckets[0].Items
+	for _, it := range items {
+		switch it.File {
+		case "top.css", "style.css":
+			if it.HasFlag("nomux") {
+				t.Errorf("%s should NOT have nomux", it.File)
+			}
+		case "page.html":
+			if !it.HasFlag("nomux") {
+				t.Errorf("page.html should have nomux (inherited mux-exclude)")
+			}
+		}
+	}
+}
+
+// ---
+
+func TestNestedResourceListCascadesEscape(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app", "sub"), 0755)
+
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<globals><var name="val" value="&lt;b&gt;bold&lt;/b&gt;" /></globals>
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "app.miniskin.xml"), []byte(`<miniskin>
+	<resource-list>
+		<escape ext="*.html" as="html" />
+		<resource-list src="sub">
+			<item src="page_src.html" file="page.html" />
+		</resource-list>
+	</resource-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "sub", "page_src.html"), []byte(`<%val%>`), 0644)
+
+	ms := newSilent(dir, dir)
+	result, err := ms.Run()
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+	defer cleanup(result.Buckets[0].Items)
+
+	data, _ := os.ReadFile(filepath.Join(dir, "app", "sub", "page.html"))
+	if string(data) != "&lt;b&gt;bold&lt;/b&gt;" {
+		t.Errorf("expected HTML escape from cascaded rule, got %q", string(data))
+	}
+}
+
+// ---
+
+func TestDeepNestedResourceLists(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app", "a", "b"), 0755)
+
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "app.miniskin.xml"), []byte(`<miniskin>
+	<resource-list>
+		<item type="static" file="root.css" />
+		<resource-list src="a">
+			<item type="static" file="mid.css" />
+			<resource-list src="b">
+				<item type="static" file="deep.css" />
+			</resource-list>
+		</resource-list>
+	</resource-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "root.css"), []byte(""), 0644)
+	os.WriteFile(filepath.Join(dir, "app", "a", "mid.css"), []byte(""), 0644)
+	os.WriteFile(filepath.Join(dir, "app", "a", "b", "deep.css"), []byte(""), 0644)
+
+	ms := newSilent(dir, dir)
+	result, err := ms.BuildEmbed()
+	if err != nil {
+		t.Fatalf("BuildEmbed failed: %v", err)
+	}
+
+	items := result.Buckets[0].Items
+	if len(items) != 3 {
+		t.Fatalf("expected 3 items, got %d", len(items))
+	}
+
+	expected := []struct{ file, dir string }{
+		{"root.css", filepath.Join(dir, "app")},
+		{"mid.css", filepath.Join(dir, "app", "a")},
+		{"deep.css", filepath.Join(dir, "app", "a", "b")},
+	}
+	for i, e := range expected {
+		if items[i].File != e.file {
+			t.Errorf("item %d: expected file %s, got %s", i, e.file, items[i].File)
+		}
+		if items[i].dir != e.dir {
+			t.Errorf("item %d: expected dir %s, got %s", i, e.dir, items[i].dir)
+		}
+	}
+}
+
+// ---
+
+func TestNestedResourceListOverridesMux(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app", "sub"), 0755)
+
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "app.miniskin.xml"), []byte(`<miniskin>
+	<resource-list mux-exclude="*.html">
+		<item type="static" file="page.html" />
+		<resource-list src="sub" mux-exclude="*.css">
+			<item type="static" file="sub.html" />
+			<item type="static" file="sub.css" />
+		</resource-list>
+	</resource-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "page.html"), []byte(""), 0644)
+	os.WriteFile(filepath.Join(dir, "app", "sub", "sub.html"), []byte(""), 0644)
+	os.WriteFile(filepath.Join(dir, "app", "sub", "sub.css"), []byte(""), 0644)
+
+	ms := newSilent(dir, dir)
+	result, err := ms.BuildEmbed()
+	if err != nil {
+		t.Fatalf("BuildEmbed failed: %v", err)
+	}
+
+	items := result.Buckets[0].Items
+	for _, it := range items {
+		switch it.File {
+		case "page.html":
+			if !it.HasFlag("nomux") {
+				t.Errorf("page.html should have nomux (parent mux-exclude=*.html)")
+			}
+		case "sub.html":
+			// Child overrides mux-exclude to *.css, so *.html is no longer excluded
+			if it.HasFlag("nomux") {
+				t.Errorf("sub.html should NOT have nomux (child overrides mux-exclude)")
+			}
+		case "sub.css":
+			if !it.HasFlag("nomux") {
+				t.Errorf("sub.css should have nomux (child mux-exclude=*.css)")
+			}
+		}
+	}
+}
+
+// ---
+
+func TestChainedAndNestedResourceLists(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app", "login"), 0755)
+
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "app.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/assets">
+		<item type="static" file="app.css" />
+	</resource-list>
+	<resource-list urlbase="/pages">
+		<item type="static" file="index.html" />
+		<resource-list src="login" urlbase="/login">
+			<item type="static" file="signin.html" />
+		</resource-list>
+	</resource-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "app.css"), []byte(""), 0644)
+	os.WriteFile(filepath.Join(dir, "app", "index.html"), []byte(""), 0644)
+	os.WriteFile(filepath.Join(dir, "app", "login", "signin.html"), []byte(""), 0644)
+
+	ms := newSilent(dir, dir)
+	result, err := ms.BuildEmbed()
+	if err != nil {
+		t.Fatalf("BuildEmbed failed: %v", err)
+	}
+
+	items := result.Buckets[0].Items
+	if len(items) != 3 {
+		t.Fatalf("expected 3 items, got %d", len(items))
+	}
+
+	expectations := []struct{ file, urlBase string }{
+		{"app.css", "/assets"},
+		{"index.html", "/pages"},
+		{"signin.html", "/login"},
+	}
+	for i, e := range expectations {
+		if items[i].File != e.file || items[i].urlBase != e.urlBase {
+			t.Errorf("item %d: expected %s@%s, got %s@%s", i, e.file, e.urlBase, items[i].File, items[i].urlBase)
+		}
+	}
+}
+
+// ---
+
+func TestInlineResourceListInBucket(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app", "login"), 0755)
+
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app">
+			<resource-list urlbase="/assets">
+				<item type="static" file="app.css" />
+			</resource-list>
+			<resource-list urlbase="/pages">
+				<item type="static" file="index.html" />
+				<resource-list src="login" urlbase="/login">
+					<item type="static" file="signin.html" />
+				</resource-list>
+			</resource-list>
+		</bucket>
+	</bucket-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "app.css"), []byte("body{}"), 0644)
+	os.WriteFile(filepath.Join(dir, "app", "index.html"), []byte("<h1>Hi</h1>"), 0644)
+	os.WriteFile(filepath.Join(dir, "app", "login", "signin.html"), []byte("<form></form>"), 0644)
+
+	ms := newSilent(dir, dir)
+	result, err := ms.BuildEmbed()
+	if err != nil {
+		t.Fatalf("BuildEmbed failed: %v", err)
+	}
+
+	items := result.Buckets[0].Items
+	if len(items) != 3 {
+		t.Fatalf("expected 3 items, got %d", len(items))
+	}
+
+	expectations := []struct{ file, urlBase, dir string }{
+		{"app.css", "/assets", filepath.Join(dir, "app")},
+		{"index.html", "/pages", filepath.Join(dir, "app")},
+		{"signin.html", "/login", filepath.Join(dir, "app", "login")},
+	}
+	for i, e := range expectations {
+		if items[i].File != e.file {
+			t.Errorf("item %d: expected file %s, got %s", i, e.file, items[i].File)
+		}
+		if items[i].urlBase != e.urlBase {
+			t.Errorf("item %d: expected urlBase %s, got %s", i, e.urlBase, items[i].urlBase)
+		}
+		if items[i].dir != e.dir {
+			t.Errorf("item %d: expected dir %s, got %s", i, e.dir, items[i].dir)
+		}
+	}
+}
+
+// ---
+
+func TestInlineBucketWithExternalXML(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app", "extra"), 0755)
+
+	// Bucket has inline resource-list AND there's an external XML in a subdirectory
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" recurse-folder="all">
+			<resource-list urlbase="/inline">
+				<item type="static" file="inline.css" />
+			</resource-list>
+		</bucket>
+	</bucket-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "extra", "extra.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/extra">
+		<item type="static" file="extra.css" />
+	</resource-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "inline.css"), []byte("inline{}"), 0644)
+	os.WriteFile(filepath.Join(dir, "app", "extra", "extra.css"), []byte("extra{}"), 0644)
+
+	ms := newSilent(dir, dir)
+	result, err := ms.BuildEmbed()
+	if err != nil {
+		t.Fatalf("BuildEmbed failed: %v", err)
+	}
+
+	items := result.Buckets[0].Items
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(items))
+	}
+
+	// Inline items come first, then external
+	if items[0].File != "inline.css" || items[0].urlBase != "/inline" {
+		t.Errorf("item 0: expected inline.css@/inline, got %s@%s", items[0].File, items[0].urlBase)
+	}
+	if items[1].File != "extra.css" || items[1].urlBase != "/extra" {
+		t.Errorf("item 1: expected extra.css@/extra, got %s@%s", items[1].File, items[1].urlBase)
+	}
+}
+
+// ---
+
+func TestCombineDir(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "assets"), 0755)
+	os.MkdirAll(filepath.Join(dir, "login"), 0755)
+
+	os.WriteFile(filepath.Join(dir, "assets", "assets.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/assets">
+		<item type="static" file="app.css" />
+		<item type="static" file="app.js" />
+	</resource-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "login", "login.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/login">
+		<item type="html-template" src="signin_src.html" file="signin.html" />
+	</resource-list>
+</miniskin>`), 0644)
+
+	err := CombineDir(dir)
+	if err != nil {
+		t.Fatalf("CombineDir failed: %v", err)
+	}
+
+	// Old XMLs should be removed
+	if _, err := os.Stat(filepath.Join(dir, "assets", "assets.miniskin.xml")); err == nil {
+		t.Error("assets.miniskin.xml should have been removed")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "login", "login.miniskin.xml")); err == nil {
+		t.Error("login.miniskin.xml should have been removed")
+	}
+
+	// Combined XML should exist
+	combinedPath := filepath.Join(dir, filepath.Base(dir)+".miniskin.xml")
+	combined, err := parseMiniskinXML(combinedPath)
+	if err != nil {
+		t.Fatalf("parsing combined XML: %v", err)
+	}
+
+	if len(combined.ResourceLists) != 2 {
+		t.Fatalf("expected 2 resource-lists, got %d", len(combined.ResourceLists))
+	}
+
+	// Check that src attributes are set
+	for _, rl := range combined.ResourceLists {
+		if rl.Src != "assets" && rl.Src != "login" {
+			t.Errorf("unexpected resource-list src: %q", rl.Src)
+		}
+	}
+}
+
+// ---
+
+func TestCombineDirWithRootXML(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "sub"), 0755)
+
+	// Root XML at target dir
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/root">
+		<item type="static" file="index.html" />
+	</resource-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "sub", "sub.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/sub">
+		<item type="static" file="page.html" />
+	</resource-list>
+</miniskin>`), 0644)
+
+	err := CombineDir(dir)
+	if err != nil {
+		t.Fatalf("CombineDir failed: %v", err)
+	}
+
+	// Should reuse root XML name
+	combined, err := parseMiniskinXML(filepath.Join(dir, "root.miniskin.xml"))
+	if err != nil {
+		t.Fatalf("parsing combined XML: %v", err)
+	}
+
+	// Root resource-list (no src) + sub resource-list (src="sub")
+	if len(combined.ResourceLists) != 2 {
+		t.Fatalf("expected 2 resource-lists, got %d", len(combined.ResourceLists))
+	}
+
+	foundRoot := false
+	foundSub := false
+	for _, rl := range combined.ResourceLists {
+		if rl.Src == "" && rl.URLBase == "/root" {
+			foundRoot = true
+		}
+		if rl.Src == "sub" && rl.URLBase == "/sub" {
+			foundSub = true
+		}
+	}
+	if !foundRoot {
+		t.Error("root resource-list not found")
+	}
+	if !foundSub {
+		t.Error("sub resource-list not found")
+	}
+}
+
+// ---
+
+func TestCombineDirDeepNesting(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "a", "b"), 0755)
+
+	os.WriteFile(filepath.Join(dir, "a", "a.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/a">
+		<item type="static" file="a.css" />
+	</resource-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "a", "b", "b.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/b">
+		<item type="static" file="b.css" />
+	</resource-list>
+</miniskin>`), 0644)
+
+	err := CombineDir(dir)
+	if err != nil {
+		t.Fatalf("CombineDir failed: %v", err)
+	}
+
+	combinedPath := filepath.Join(dir, filepath.Base(dir)+".miniskin.xml")
+	combined, err := parseMiniskinXML(combinedPath)
+	if err != nil {
+		t.Fatalf("parsing combined XML: %v", err)
+	}
+
+	// Should have one resource-list with src="a" containing nested src="b"
+	if len(combined.ResourceLists) != 1 {
+		t.Fatalf("expected 1 top-level resource-list, got %d", len(combined.ResourceLists))
+	}
+	rl := combined.ResourceLists[0]
+	if rl.Src != "a" {
+		t.Errorf("expected src=a, got %q", rl.Src)
+	}
+	if len(rl.ResourceLists) != 1 {
+		t.Fatalf("expected 1 nested resource-list, got %d", len(rl.ResourceLists))
+	}
+	if rl.ResourceLists[0].Src != "b" {
+		t.Errorf("expected nested src=b, got %q", rl.ResourceLists[0].Src)
+	}
+}
+
+// ---
+
+func TestCombineDirWithMockups(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "login"), 0755)
+
+	os.WriteFile(filepath.Join(dir, "login", "login.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/login">
+		<item type="static" file="signin.html" />
+	</resource-list>
+	<mockup-list save-mode="append">
+		<item src="mockup_login.html" negative="login_negative.html" />
+	</mockup-list>
+</miniskin>`), 0644)
+
+	err := CombineDir(dir)
+	if err != nil {
+		t.Fatalf("CombineDir failed: %v", err)
+	}
+
+	combinedPath := filepath.Join(dir, filepath.Base(dir)+".miniskin.xml")
+	combined, err := parseMiniskinXML(combinedPath)
+	if err != nil {
+		t.Fatalf("parsing combined XML: %v", err)
+	}
+
+	// Mockup items should have paths prefixed with "login/"
+	if combined.MockupList == nil {
+		t.Fatal("expected mockup-list in combined XML")
+	}
+	if len(combined.MockupList.Items) != 1 {
+		t.Fatalf("expected 1 mockup item, got %d", len(combined.MockupList.Items))
+	}
+	mi := combined.MockupList.Items[0]
+	if mi.Src != "login/mockup_login.html" {
+		t.Errorf("expected src login/mockup_login.html, got %q", mi.Src)
+	}
+	if mi.Negative != "login/login_negative.html" {
+		t.Errorf("expected negative login/login_negative.html, got %q", mi.Negative)
+	}
+}
+
+// ---
+
+func TestSplitXML(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a combined XML with nested resource-lists
+	os.WriteFile(filepath.Join(dir, "combined.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/root">
+		<item type="static" file="index.html" />
+	</resource-list>
+	<resource-list src="assets" urlbase="/assets">
+		<item type="static" file="app.css" />
+	</resource-list>
+	<resource-list src="login" urlbase="/login">
+		<item type="html-template" file="signin.html" />
+	</resource-list>
+</miniskin>`), 0644)
+
+	err := SplitXML(filepath.Join(dir, "combined.miniskin.xml"))
+	if err != nil {
+		t.Fatalf("SplitXML failed: %v", err)
+	}
+
+	// Check that subdirectory XMLs were created
+	assetsXML, err := parseMiniskinXML(filepath.Join(dir, "assets", "assets.miniskin.xml"))
+	if err != nil {
+		t.Fatalf("parsing assets XML: %v", err)
+	}
+	if len(assetsXML.ResourceLists) != 1 {
+		t.Fatalf("expected 1 resource-list in assets, got %d", len(assetsXML.ResourceLists))
+	}
+	if assetsXML.ResourceLists[0].URLBase != "/assets" {
+		t.Errorf("expected urlbase /assets, got %s", assetsXML.ResourceLists[0].URLBase)
+	}
+
+	loginXML, err := parseMiniskinXML(filepath.Join(dir, "login", "login.miniskin.xml"))
+	if err != nil {
+		t.Fatalf("parsing login XML: %v", err)
+	}
+	if len(loginXML.ResourceLists) != 1 {
+		t.Fatalf("expected 1 resource-list in login, got %d", len(loginXML.ResourceLists))
+	}
+
+	// Original should only keep root resource-list (no src)
+	original, err := parseMiniskinXML(filepath.Join(dir, "combined.miniskin.xml"))
+	if err != nil {
+		t.Fatalf("parsing original: %v", err)
+	}
+	if len(original.ResourceLists) != 1 {
+		t.Fatalf("expected 1 remaining resource-list, got %d", len(original.ResourceLists))
+	}
+	if original.ResourceLists[0].Src != "" {
+		t.Errorf("remaining resource-list should have no src, got %q", original.ResourceLists[0].Src)
+	}
+}
+
+// ---
+
+func TestCombineThenSplitRoundtrip(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "assets"), 0755)
+	os.MkdirAll(filepath.Join(dir, "login"), 0755)
+
+	os.WriteFile(filepath.Join(dir, "assets", "assets.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/assets">
+		<item type="static" file="app.css" />
+	</resource-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "login", "login.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/login">
+		<item type="static" file="signin.html" />
+	</resource-list>
+</miniskin>`), 0644)
+
+	// Combine
+	if err := CombineDir(dir); err != nil {
+		t.Fatalf("CombineDir failed: %v", err)
+	}
+
+	// Find combined file
+	combinedPath := filepath.Join(dir, filepath.Base(dir)+".miniskin.xml")
+
+	// Split
+	if err := SplitXML(combinedPath); err != nil {
+		t.Fatalf("SplitXML failed: %v", err)
+	}
+
+	// Verify subdirectory XMLs were recreated
+	assetsXML, err := parseMiniskinXML(filepath.Join(dir, "assets", "assets.miniskin.xml"))
+	if err != nil {
+		t.Fatalf("assets XML missing after split: %v", err)
+	}
+	if len(assetsXML.ResourceLists) != 1 || assetsXML.ResourceLists[0].URLBase != "/assets" {
+		t.Error("assets resource-list not restored correctly")
+	}
+
+	loginXML, err := parseMiniskinXML(filepath.Join(dir, "login", "login.miniskin.xml"))
+	if err != nil {
+		t.Fatalf("login XML missing after split: %v", err)
+	}
+	if len(loginXML.ResourceLists) != 1 || loginXML.ResourceLists[0].URLBase != "/login" {
+		t.Error("login resource-list not restored correctly")
+	}
+}
+
+// ---
+
+func TestCombineProducesSameResult(t *testing.T) {
+	// Setup: root XML + bucket + subdirectory XMLs + source files
+	dir := t.TempDir()
+	appDir := filepath.Join(dir, "app")
+	os.MkdirAll(filepath.Join(appDir, "assets"), 0755)
+	os.MkdirAll(filepath.Join(appDir, "login"), 0755)
+
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" recurse-folder="all" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(appDir, "assets", "assets.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/assets">
+		<item type="static" file="app.css" />
+	</resource-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(appDir, "login", "login.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/login">
+		<item type="html-template" src="signin_src.html" file="signin.html" />
+	</resource-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(appDir, "assets", "app.css"), []byte("body{color:red}"), 0644)
+	os.WriteFile(filepath.Join(appDir, "login", "signin_src.html"), []byte("<h1>Sign In</h1>"), 0644)
+
+	// Run pipeline BEFORE combine
+	ms1 := newSilent(dir, dir)
+	result1, err := ms1.BuildEmbed()
+	if err != nil {
+		t.Fatalf("BuildEmbed before combine: %v", err)
+	}
+	items1 := result1.Buckets[0].Items
+	cleanup(items1)
+
+	// Combine
+	if err := CombineDir(appDir); err != nil {
+		t.Fatalf("CombineDir failed: %v", err)
+	}
+
+	// Verify subdirectory XMLs are gone
+	if _, err := os.Stat(filepath.Join(appDir, "assets", "assets.miniskin.xml")); err == nil {
+		t.Error("assets.miniskin.xml should have been removed")
+	}
+	if _, err := os.Stat(filepath.Join(appDir, "login", "login.miniskin.xml")); err == nil {
+		t.Error("login.miniskin.xml should have been removed")
+	}
+
+	// Run pipeline AFTER combine
+	ms2 := newSilent(dir, dir)
+	result2, err := ms2.BuildEmbed()
+	if err != nil {
+		t.Fatalf("BuildEmbed after combine: %v", err)
+	}
+	items2 := result2.Buckets[0].Items
+	defer cleanup(items2)
+
+	// Same number of items
+	if len(items1) != len(items2) {
+		t.Fatalf("item count mismatch: before=%d after=%d", len(items1), len(items2))
+	}
+
+	// Same files, same dirs, same urlBases
+	for i := range items1 {
+		if items1[i].File != items2[i].File {
+			t.Errorf("item %d file: before=%s after=%s", i, items1[i].File, items2[i].File)
+		}
+		if items1[i].dir != items2[i].dir {
+			t.Errorf("item %d dir: before=%s after=%s", i, items1[i].dir, items2[i].dir)
+		}
+		if items1[i].urlBase != items2[i].urlBase {
+			t.Errorf("item %d urlBase: before=%s after=%s", i, items1[i].urlBase, items2[i].urlBase)
+		}
+		if items1[i].EmbedPath != items2[i].EmbedPath {
+			t.Errorf("item %d embedPath: before=%s after=%s", i, items1[i].EmbedPath, items2[i].EmbedPath)
+		}
+	}
+}
+
+// ---
+
+func TestCombineDuplicateItemsError(t *testing.T) {
+	dir := t.TempDir()
+
+	// Two XMLs in the same directory with the same file — conflict
+	os.WriteFile(filepath.Join(dir, "first.miniskin.xml"), []byte(`<miniskin>
+	<resource-list>
+		<item type="static" file="shared.css" />
+	</resource-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "second.miniskin.xml"), []byte(`<miniskin>
+	<resource-list>
+		<item type="static" file="shared.css" />
+	</resource-list>
+</miniskin>`), 0644)
+
+	err := CombineDir(dir)
+	if err == nil {
+		t.Fatal("expected error for duplicate items, got nil")
+	}
+	if !strings.Contains(err.Error(), "duplicate") {
+		t.Errorf("expected duplicate error, got: %v", err)
+	}
+}
+
+// ---
+
+func TestCombineNoDuplicateDifferentDirs(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "a"), 0755)
+	os.MkdirAll(filepath.Join(dir, "b"), 0755)
+
+	// Same filename but different directories — no conflict
+	os.WriteFile(filepath.Join(dir, "a", "a.miniskin.xml"), []byte(`<miniskin>
+	<resource-list>
+		<item type="static" file="style.css" />
+	</resource-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "b", "b.miniskin.xml"), []byte(`<miniskin>
+	<resource-list>
+		<item type="static" file="style.css" />
+	</resource-list>
+</miniskin>`), 0644)
+
+	err := CombineDir(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

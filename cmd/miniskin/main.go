@@ -29,7 +29,7 @@ func main() {
 
 	// Validate command
 	switch cmd {
-	case "run", "generate", "generate-claude-skill", "mockup update", "mockup negative", "deps":
+	case "run", "generate", "generate-claude-skill", "mockup update", "mockup negative", "deps", "combine", "split":
 		// valid
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", cmd)
@@ -126,6 +126,26 @@ func main() {
 				}
 			}
 		}
+	case "combine":
+		args := fs.Args()
+		if len(args) < 1 {
+			fmt.Fprintf(os.Stderr, "Usage: miniskin combine <directory>\n")
+			os.Exit(1)
+		}
+		err = miniskin.CombineDir(args[0])
+		if err == nil {
+			fmt.Printf("combined: %s\n", args[0])
+		}
+	case "split":
+		args := fs.Args()
+		if len(args) < 1 {
+			fmt.Fprintf(os.Stderr, "Usage: miniskin split <file.miniskin.xml>\n")
+			os.Exit(1)
+		}
+		err = miniskin.SplitXML(args[0])
+		if err == nil {
+			fmt.Printf("split: %s\n", args[0])
+		}
 	}
 
 	if err != nil {
@@ -142,6 +162,8 @@ func usage() {
 	fmt.Fprintf(os.Stderr, "  mockup update          Export mockup pieces + Refresh imports\n")
 	fmt.Fprintf(os.Stderr, "  mockup negative        Transform a mockup file into a negative template\n")
 	fmt.Fprintf(os.Stderr, "  deps                   Show dependency map and processing order\n")
+	fmt.Fprintf(os.Stderr, "  combine <dir>          Combine subdirectory XMLs into one\n")
+	fmt.Fprintf(os.Stderr, "  split <file>           Split nested resource-lists into separate XMLs\n")
 	fmt.Fprintf(os.Stderr, "\nFlags:\n")
 	fmt.Fprintf(os.Stderr, "  -content string        path to content directory (default \".\")\n")
 	fmt.Fprintf(os.Stderr, "  -modules string        path to modules directory (default \".\")\n")
