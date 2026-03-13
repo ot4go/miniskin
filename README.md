@@ -42,10 +42,10 @@ Four equivalent syntaxes, resolved at generation time:
 
 | Syntax | Type | Behavior |
 |---|---|---|
-| `<%var%>` | single | value (uses default escape) |
-| `<%%var%%>` | double | value (uses default escape) |
-| `<!--%var%-->` | single comment | value (browser-invisible) |
-| `<!--%%var%%-->` | double comment | value (browser-invisible) |
+| `<%var%>` | inline | value (uses default escape) |
+| `<%%var%%>` | inline | value (uses default escape) |
+| `<!--%var%-->` | comment | value (browser-invisible) |
+| `<!--%%var%%-->` | comment | value (browser-invisible) |
 
 Comment forms (`<!--%...%-->`, `<!--%%...%%-->`) are HTML comments — invisible in the browser, suitable for mockup HTML files that need to render standalone.
 
@@ -64,7 +64,7 @@ All tags default to no escaping. Use `<escape>` in XML to configure default esca
 
 | Prefix | Description | Example input | Example output |
 |---|---|---|---|
-| `html` | HTML entities (default for single) | `<b>"hi"</b>` | `&lt;b&gt;&#34;hi&#34;&lt;/b&gt;` |
+| `html` | HTML entities | `<b>"hi"</b>` | `&lt;b&gt;&#34;hi&#34;&lt;/b&gt;` |
 | `xml` | XML entities (`&apos;` for `'`) | `it's <ok>` | `it&apos;s &lt;ok&gt;` |
 | `url` | URL encoding | `hello world` | `hello+world` |
 | `js` | JavaScript string escaping | `say "hi"\n` | `say \"hi\"\\n` |
@@ -105,25 +105,25 @@ Position of `<escape>` elements within a block is irrelevant. Child rules overri
 
 ### Directives
 
-| Directive | Syntax | Description |
-|---|---|---|
-| `if:var` | single/double | Include content if var is defined and non-empty |
-| `if-not:var` | single/double | Include content if var is undefined or empty |
-| `elseif:var` | single/double | Checked only if all previous branches were false |
-| `elseif-not:var` | single/double | Negated elseif |
-| `else` | single/double | Fallback branch |
-| `endif` | single/double | Close conditional block |
-| `end` | single/double | Universal closer (works for if, mockup-export, mockup-import) |
-| `end-if` | single/double | Close if block (specific alias) |
-| `end-mockup-export` | single/double | Close mockup-export block (specific alias) |
-| `end-mockup-import` | single/double | Close mockup-import block (specific alias) |
-| `note:text` | single/double | Discarded silently (comment) |
-| `echo:text` | single/double | Emit text (uses default escape) |
-| `include:/path` | double only | Include file contents (resolved recursively) |
-| `mockup-export:path [mode]` | all | Extract content to file (mockup mode only) |
-| `mockup-import:path` | all | Insert file contents (mockup mode only) |
+| Directive | Description |
+|---|---|
+| `if:var` | Include content if var is defined and non-empty |
+| `if-not:var` | Include content if var is undefined or empty |
+| `elseif:var` | Checked only if all previous branches were false |
+| `elseif-not:var` | Negated elseif |
+| `else` | Fallback branch |
+| `endif` | Close conditional block |
+| `end` | Universal closer (works for if, mockup-export, mockup-import) |
+| `end-if` | Close if block (specific alias) |
+| `end-mockup-export` | Close mockup-export block (specific alias) |
+| `end-mockup-import` | Close mockup-import block (specific alias) |
+| `note:text` | Discarded silently (comment) |
+| `echo:text` | Emit text (uses default escape) |
+| `include:path` | Include file contents (double tags only, resolved recursively) |
+| `mockup-export:path [mode]` | Extract content to file (mockup mode only) |
+| `mockup-import:path` | Insert file contents (mockup mode only) |
 
-All directives work in all four tag syntaxes except `include:`, which requires double percent tags. Examples:
+All directives work in all four tag syntaxes. `include:` requires double percent tags (`<%%include:path%%>`). Examples:
 
 ```html
 <!--%%if:mockup%%-->
@@ -170,7 +170,7 @@ A skin is an HTML layout file in the skin directory (default `_skin/`) that uses
 </html>
 ```
 
-`<%%content%%>` is replaced with the processed body. Other front-matter variables (like `<%title%>`) are available with HTML escaping via single tags or literal via double tags.
+`<%%content%%>` is replaced with the processed body. Other front-matter variables (like `<%title%>`) are available in any tag syntax. Escaping is determined by the `<escape>` rules declared in the XML.
 
 The skin directory cascades: `<miniskin skin-dir>` → `<bucket skin-dir>` → `<resource-list skin-dir>`. Default is `_skin`.
 
@@ -750,15 +750,19 @@ content/
       signin.html               # generated output (gitignored)
 ```
 
-## Claude Code skill
+## AI assistance
 
-Generate the [Claude Code](https://claude.com/claude-code) skill file:
+The `ai/core/` directory contains miniskin's documentation in modular files (overview, syntax, pipeline, rules, examples). These files can be used as context by any AI tool.
+
+### Claude Code
+
+Generate the skill file:
 
 ```
 miniskin generate-claude-skill
 ```
 
-This creates `.claude/skills/miniskin/SKILL.md` with all the information Claude Code needs to assist with miniskin-based projects.
+This creates `.claude/skills/miniskin/SKILL.md` from the `ai/core/` sources.
 
 ## Background
 
