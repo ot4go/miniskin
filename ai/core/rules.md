@@ -1,0 +1,20 @@
+## Key behaviors
+
+- `mockup-export` inside `if:mockup` is silently skipped in normal mode (no error)
+- `mockup-import` inside `mockup-export` works (imported content becomes part of export)
+- Export block dependencies resolved at block level: if export A imports a path produced by export B (same or different file), B is processed first
+- `mockup-export` inside `mockup-import` is ignored (raw text, not parsed)
+- In mockup mode: variables, includes, echo, note pass through literally (not resolved)
+- Conditionals in mockup mode check existence only (defined = true)
+- `mockup=1` is auto-injected in mockup mode
+- `end` is universal closer (works for if, mockup-export, mockup-import blocks)
+- Specific closers: `end-if` (if only), `end-mockup-export` (export only), `end-mockup-import` (import only)
+- `TransformNegative` replaces export...end blocks with import...end-mockup-import blocks
+- Skin directory cascades: `<miniskin>` → `<bucket>` → `<resource-list>` (default: `_skin`)
+- Mux-include/mux-exclude cascades: `<miniskin>` → `<bucket-list>` → `<bucket>` → `<resource-list>` (default: `mux-include="*"`, `mux-exclude=""`)
+- Items not matching `mux-include` or matching `mux-exclude` get `nomux` added automatically
+- Explicit `nomux` in item type always takes precedence
+- Save-mode cascades: `<mockup-list>` → `<item>` → tag-level mode
+- Variable merge order: globals → mockup-list vars → item vars → front-matter vars
+- First write to a file in a session always truncates; subsequent writes respect mode
+- `refreshImports` is idempotent: single tags promoted to blocks, existing blocks get content replaced

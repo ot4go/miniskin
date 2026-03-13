@@ -13,7 +13,7 @@ func main() {
 	_, thisFile, _, _ := runtime.Caller(0)
 	testdata := filepath.Join(filepath.Dir(thisFile), "..", "testdata")
 
-	ms := miniskin.New(testdata, testdata)
+	ms := miniskin.MiniskinNew(testdata, testdata)
 
 	result, err := ms.Run()
 	if err != nil {

@@ -1,0 +1,64 @@
+## Front-matter
+
+YAML-like block delimited by `---` at the top of source files:
+
+```
+---
+skin: default
+title: Sign In
+---
+<div>content</div>
+```
+
+`skin` triggers layout application. Other keys become template variables.
+
+## XML structure
+
+**Root** (`contentPath/*.miniskin.xml`):
+
+```xml
+<miniskin skin-dir="_skin" log="miniskin.log">
+  <globals>
+    <var name="appName" value="MyApp" />
+  </globals>
+  <escape ext="*.html,*.html.tmpl" as="html" />
+  <escape ext="*.js,*.js.tmpl" as="js" />
+  <bucket-list filename="generated_embed.go" module="content" import="pkg/content">
+    <bucket src="app" dst="/modules/app/generated_assets.go"
+            module-name="app" template="miniskin::mux" />
+  </bucket-list>
+</miniskin>
+```
+
+**Subdirectory** (`subdir/*.miniskin.xml`):
+
+```xml
+<miniskin>
+  <resource-list urlbase="/assets" skin-dir="skins">
+    <item type="static" file="app.css" />
+    <item type="html-template,parse" src="page_src.html" file="page.html" key="/page" />
+  </resource-list>
+  <mockup-list save-mode="append">
+    <var name="policybanner" value="1" />
+    <item src="mockup_login.html">
+      <var name="title" value="Login" />
+    </item>
+  </mockup-list>
+</miniskin>
+```
+
+## Item attributes
+
+- `file` — output filename (what gets embedded)
+- `src` — source filename (if present, processed through template engine)
+- `type` — comma-separated flags: `static`, `html-template`, `nomux`, `parse`
+- `key` — logical key for asset lookup
+- `url` / `alt-url-abs` — URL routing attributes
+- `escape` — override default escape type for this item (`html`, `js`, `url`, `sql`, etc.)
+
+## Built-in templates
+
+- `miniskin::default` — generic `Asset` type with `Get()`, `RegisterRoutes()`, `GetParsedTemplate()`
+- `miniskin::mux` — `RegisterRoutes(mux *http.ServeMux, tmplHandlers)` with exact-path matching
+
+Custom templates via file path: `template="my_template.tmpl"`

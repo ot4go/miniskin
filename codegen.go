@@ -8,29 +8,99 @@ import (
 	"text/template"
 )
 
-// GenerateEmbed writes the generated_embed.go file with //go:embed directives.
-// If bucket-list has a template attribute, uses that custom template.
-// Otherwise uses the built-in default template.
-func (ms *Miniskin) GenerateEmbed(result *Result) error {
-	outPath := filepath.Join(ms.contentPath, result.BucketList.Filename)
+// Codegen generates Go source files with //go:embed directives
+// from a [Result] produced by [Miniskin.Run] or [Miniskin.BuildEmbed].
+type Codegen struct {
+	contentPath string
+	modulesPath string
+}
 
-	var tmplSrc string
-	if result.BucketList.Template != "" {
-		data, err := os.ReadFile(filepath.Join(ms.contentPath, result.BucketList.Template))
-		if err != nil {
-			return fmt.Errorf("reading embed template %s: %w", result.BucketList.Template, err)
+// CodegenNew creates a Codegen instance.
+// contentPath: root directory where content files live.
+// modulesPath: root directory where Go modules live.
+func CodegenNew(contentPath, modulesPath string) *Codegen {
+	return &Codegen{contentPath: contentPath, modulesPath: modulesPath}
+}
+
+// MiniskinRun runs the full pipeline: mockup update + build + code generation.
+// Pass VerbosityNormal for standard output, or higher levels for more detail.
+func MiniskinRun(contentPath, modulesPath string, verbosity ...Verbosity) error {
+	ms := MiniskinNew(contentPath, modulesPath)
+	if len(verbosity) > 0 {
+		ms.SetVerbosity(verbosity[0])
+	}
+	result, err := ms.Run()
+	if err != nil {
+		return err
+	}
+	cg := CodegenNew(contentPath, modulesPath)
+	return cg.GenerateAll(result)
+}
+
+// MiniskinGenerate builds embed assets and generates Go source code.
+// Does not process mockups — use [MiniskinFull] for the complete pipeline.
+func MiniskinGenerate(contentPath, modulesPath string, verbosity ...Verbosity) error {
+	ms := MiniskinNew(contentPath, modulesPath)
+	if len(verbosity) > 0 {
+		ms.SetVerbosity(verbosity[0])
+	}
+	result, err := ms.BuildEmbed()
+	if err != nil {
+		return err
+	}
+	cg := CodegenNew(contentPath, modulesPath)
+	return cg.GenerateAll(result)
+}
+
+// MiniskinMockupUpdate processes mockup exports and refreshes imports.
+// Runs dependency analysis, mockup-export extraction, and import refresh.
+func MiniskinMockupUpdate(contentPath, modulesPath string, verbosity ...Verbosity) error {
+	ms := MiniskinNew(contentPath, modulesPath)
+	if len(verbosity) > 0 {
+		ms.SetVerbosity(verbosity[0])
+	}
+	dm, err := ms.AnalyzeDeps()
+	if err != nil {
+		return err
+	}
+	if dm.HasCycles() {
+		return fmt.Errorf("circular dependencies detected")
+	}
+	if _, err = ms.ProcessMockupExport(); err != nil {
+		return err
+	}
+	return ms.UpdateImports()
+}
+
+// GenerateAll writes the embed file and all bucket files.
+func (cg *Codegen) GenerateAll(result *Result) error {
+	if err := cg.GenerateEmbed(result); err != nil {
+		return err
+	}
+	for _, br := range result.Buckets {
+		if err := cg.GenerateBucketFile(result, br); err != nil {
+			return err
 		}
-		tmplSrc = string(data)
-	} else {
-		tmplSrc = defaultEmbedTmpl
+	}
+	return nil
+}
+
+// GenerateEmbed writes the embed file (e.g. generated_embed.go) with //go:embed directives.
+// Uses the custom template from bucket-list if set, otherwise the built-in default.
+func (cg *Codegen) GenerateEmbed(result *Result) error {
+	outPath := filepath.Join(cg.contentPath, result.BucketList.Filename)
+
+	tmplSrc, err := resolveTemplate(result.BucketList.Template, namedEmbedTemplates, defaultEmbedTmpl, cg.contentPath)
+	if err != nil {
+		return err
 	}
 
 	funcMap := template.FuncMap{
 		"embedPath": func(item Item) string {
-			return ms.relativeEmbedPath(item)
+			return item.EmbedPath
 		},
 		"embedVar": func(item Item) string {
-			return embedVarName(ms.relativeEmbedPath(item))
+			return embedVarName(item.EmbedPath)
 		},
 	}
 
@@ -48,24 +118,17 @@ func (ms *Miniskin) GenerateEmbed(result *Result) error {
 	return tmpl.Execute(f, result)
 }
 
-// GenerateBucketFile writes the generated Go file for a bucket.
-// If the bucket has a template attribute, uses that file.
-// Otherwise uses the built-in default template.
-func (ms *Miniskin) GenerateBucketFile(result *Result, br BucketResult) error {
-	var tmplSrc string
-	if br.Bucket.Template != "" {
-		data, err := os.ReadFile(filepath.Join(ms.contentPath, br.Bucket.Template))
-		if err != nil {
-			return fmt.Errorf("reading template %s: %w", br.Bucket.Template, err)
-		}
-		tmplSrc = string(data)
-	} else {
-		tmplSrc = defaultBucketTmpl
+// GenerateBucketFile writes the generated Go file for a single bucket.
+// Uses the custom template from the bucket if set, otherwise the built-in default.
+func (cg *Codegen) GenerateBucketFile(result *Result, br BucketResult) error {
+	tmplSrc, err := resolveTemplate(br.Bucket.Template, namedBucketTemplates, defaultBucketTmpl, cg.contentPath)
+	if err != nil {
+		return err
 	}
 
 	funcMap := template.FuncMap{
 		"embedVar": func(item Item) string {
-			return embedVarName(ms.relativeEmbedPath(item))
+			return embedVarName(item.EmbedPath)
 		},
 		"mimeType": func(item Item) string {
 			return guessMime(item.File)
@@ -96,7 +159,7 @@ func (ms *Miniskin) GenerateBucketFile(result *Result, br BucketResult) error {
 		Items:      br.Items,
 	}
 
-	dstPath := filepath.Join(ms.modulesPath, filepath.FromSlash(br.Bucket.Dst))
+	dstPath := filepath.Join(cg.modulesPath, filepath.FromSlash(br.Bucket.Dst))
 	f, err := os.Create(dstPath)
 	if err != nil {
 		return fmt.Errorf("creating %s: %w", dstPath, err)
@@ -110,26 +173,28 @@ func (ms *Miniskin) GenerateBucketFile(result *Result, br BucketResult) error {
 	return nil
 }
 
-// GenerateAll generates the embed file and all bucket files.
-func (ms *Miniskin) GenerateAll(result *Result) error {
-	if err := ms.GenerateEmbed(result); err != nil {
-		return err
+// resolveTemplate returns the template source for a given name.
+// If name is empty, returns the default. If name starts with "miniskin::",
+// looks up the built-in named template. Otherwise, reads from file.
+func resolveTemplate(name string, named map[string]string, fallback string, contentPath string) (string, error) {
+	if name == "" {
+		return fallback, nil
 	}
-	for _, br := range result.Buckets {
-		if err := ms.GenerateBucketFile(result, br); err != nil {
-			return err
+	if strings.HasPrefix(name, "miniskin::") {
+		src, ok := named[name]
+		if !ok {
+			return "", fmt.Errorf("unknown built-in template %q", name)
 		}
+		return src, nil
 	}
-	return nil
+	data, err := os.ReadFile(filepath.Join(contentPath, name))
+	if err != nil {
+		return "", fmt.Errorf("reading template %s: %w", name, err)
+	}
+	return string(data), nil
 }
 
 // --- helpers
-
-func (ms *Miniskin) relativeEmbedPath(item Item) string {
-	full := filepath.Join(item.Dir, item.File)
-	rel, _ := filepath.Rel(ms.contentPath, full)
-	return filepath.ToSlash(rel)
-}
 
 func embedVarName(relPath string) string {
 	dir := filepath.ToSlash(filepath.Dir(relPath))

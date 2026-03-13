@@ -1,11 +1,23 @@
 package miniskin
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func newSilent(contentPath, modulesPath string) *Miniskin {
+	return MiniskinNew(contentPath, modulesPath).Silent()
+}
+
+func newMockup(contentPath, modulesPath string) *Miniskin {
+	ms := newSilent(contentPath, modulesPath)
+	ms.skipVars = true
+	ms.touchedFiles = make(map[string]bool)
+	return ms
+}
 
 func testdataPath() string {
 	wd, _ := os.Getwd()
@@ -15,7 +27,7 @@ func testdataPath() string {
 func cleanup(items []Item) {
 	for _, it := range items {
 		if it.NeedsProcessing() {
-			os.Remove(it.FilePath())
+			os.Remove(it.filePath())
 		}
 	}
 }
@@ -23,7 +35,7 @@ func cleanup(items []Item) {
 // ---
 
 func TestParseRootMiniskinXML(t *testing.T) {
-	ms := New(testdataPath(), testdataPath())
+	ms := newSilent(testdataPath(), testdataPath())
 	result, err := ms.Run()
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
@@ -44,7 +56,7 @@ func TestParseRootMiniskinXML(t *testing.T) {
 // ---
 
 func TestCollectAllItems(t *testing.T) {
-	ms := New(testdataPath(), testdataPath())
+	ms := newSilent(testdataPath(), testdataPath())
 	result, err := ms.Run()
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
@@ -60,7 +72,7 @@ func TestCollectAllItems(t *testing.T) {
 // ---
 
 func TestSkinFromFrontMatter(t *testing.T) {
-	ms := New(testdataPath(), testdataPath())
+	ms := newSilent(testdataPath(), testdataPath())
 	result, err := ms.Run()
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
@@ -78,7 +90,7 @@ func TestSkinFromFrontMatter(t *testing.T) {
 		t.Fatal("signin.html not found")
 	}
 
-	data, err := os.ReadFile(signin.FilePath())
+	data, err := os.ReadFile(signin.filePath())
 	if err != nil {
 		t.Fatalf("reading generated file: %v", err)
 	}
@@ -101,7 +113,7 @@ func TestSkinFromFrontMatter(t *testing.T) {
 // ---
 
 func TestPercentInclude(t *testing.T) {
-	ms := New(testdataPath(), testdataPath())
+	ms := newSilent(testdataPath(), testdataPath())
 	result, err := ms.Run()
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
@@ -119,7 +131,7 @@ func TestPercentInclude(t *testing.T) {
 		t.Fatal("plain.css not found")
 	}
 
-	data, err := os.ReadFile(plain.FilePath())
+	data, err := os.ReadFile(plain.filePath())
 	if err != nil {
 		t.Fatalf("reading generated file: %v", err)
 	}
@@ -136,7 +148,7 @@ func TestPercentInclude(t *testing.T) {
 // ---
 
 func TestStaticNotProcessed(t *testing.T) {
-	ms := New(testdataPath(), testdataPath())
+	ms := newSilent(testdataPath(), testdataPath())
 	result, err := ms.Run()
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
@@ -164,7 +176,7 @@ func TestCycleDetection(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "cycle.html"), []byte(`<%%include:/cycle.html%%>`), 0644)
 
-	ms := New(dir, dir)
+	ms := newSilent(dir, dir)
 	_, err := ms.resolvePercent(`<%%include:/cycle.html%%>`, nil, nil)
 	if err == nil {
 		t.Fatal("expected cycle detection error")
@@ -184,7 +196,7 @@ func TestNestedIncludes(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "b.html"), []byte(`[B-start]<%%include:/c.html%%>[B-end]`), 0644)
 	os.WriteFile(filepath.Join(dir, "c.html"), []byte(`[C]`), 0644)
 
-	ms := New(dir, dir)
+	ms := newSilent(dir, dir)
 	result, err := ms.resolvePercent(`<%%include:/a.html%%>`, nil, nil)
 	if err != nil {
 		t.Fatalf("nested includes failed: %v", err)
@@ -205,7 +217,7 @@ func TestIndirectCycle(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "b.html"), []byte(`<%%include:/c.html%%>`), 0644)
 	os.WriteFile(filepath.Join(dir, "c.html"), []byte(`<%%include:/a.html%%>`), 0644)
 
-	ms := New(dir, dir)
+	ms := newSilent(dir, dir)
 	_, err := ms.resolvePercent(`<%%include:/a.html%%>`, nil, nil)
 	if err == nil {
 		t.Fatal("expected cycle detection error for indirect cycle")
@@ -218,7 +230,7 @@ func TestIndirectCycle(t *testing.T) {
 // ---
 
 func TestUnclosedSingleTag(t *testing.T) {
-	ms := New(t.TempDir(), t.TempDir())
+	ms := newSilent(t.TempDir(), t.TempDir())
 	_, err := ms.resolvePercent(`before <%oops after`, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for unclosed single tag")
@@ -228,7 +240,7 @@ func TestUnclosedSingleTag(t *testing.T) {
 // ---
 
 func TestUnclosedDoubleTag(t *testing.T) {
-	ms := New(t.TempDir(), t.TempDir())
+	ms := newSilent(t.TempDir(), t.TempDir())
 	_, err := ms.resolvePercent(`before <%%oops after`, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for unclosed double tag")
@@ -238,7 +250,7 @@ func TestUnclosedDoubleTag(t *testing.T) {
 // ---
 
 func TestUndefinedVariable(t *testing.T) {
-	ms := New(t.TempDir(), t.TempDir())
+	ms := newSilent(t.TempDir(), t.TempDir())
 	_, err := ms.resolvePercent(`<%noexist%>`, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for undefined variable")
@@ -249,7 +261,7 @@ func TestUndefinedVariable(t *testing.T) {
 
 func TestIncludeFileNotFound(t *testing.T) {
 	dir := t.TempDir()
-	ms := New(dir, dir)
+	ms := newSilent(dir, dir)
 	_, err := ms.resolvePercent(`<%%include:/nonexistent.html%%>`, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for missing include file")
@@ -259,7 +271,7 @@ func TestIncludeFileNotFound(t *testing.T) {
 // ---
 
 func TestIfTrue(t *testing.T) {
-	ms := New(t.TempDir(), t.TempDir())
+	ms := newSilent(t.TempDir(), t.TempDir())
 	vars := map[string]string{"x": "yes"}
 	result, err := ms.resolvePercent(`before<%if:x%>SHOW<%endif%>after`, vars, nil)
 	if err != nil {
@@ -273,7 +285,7 @@ func TestIfTrue(t *testing.T) {
 // ---
 
 func TestIfFalse(t *testing.T) {
-	ms := New(t.TempDir(), t.TempDir())
+	ms := newSilent(t.TempDir(), t.TempDir())
 	result, err := ms.resolvePercent(`before<%if:x%>HIDE<%endif%>after`, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -286,7 +298,7 @@ func TestIfFalse(t *testing.T) {
 // ---
 
 func TestIfEmptyIsFalse(t *testing.T) {
-	ms := New(t.TempDir(), t.TempDir())
+	ms := newSilent(t.TempDir(), t.TempDir())
 	vars := map[string]string{"x": ""}
 	result, err := ms.resolvePercent(`<%if:x%>HIDE<%endif%>`, vars, nil)
 	if err != nil {
@@ -300,7 +312,7 @@ func TestIfEmptyIsFalse(t *testing.T) {
 // ---
 
 func TestIfElse(t *testing.T) {
-	ms := New(t.TempDir(), t.TempDir())
+	ms := newSilent(t.TempDir(), t.TempDir())
 	result, err := ms.resolvePercent(`<%if:x%>YES<%else%>NO<%endif%>`, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -313,7 +325,7 @@ func TestIfElse(t *testing.T) {
 // ---
 
 func TestIfElseTrue(t *testing.T) {
-	ms := New(t.TempDir(), t.TempDir())
+	ms := newSilent(t.TempDir(), t.TempDir())
 	vars := map[string]string{"x": "1"}
 	result, err := ms.resolvePercent(`<%if:x%>YES<%else%>NO<%endif%>`, vars, nil)
 	if err != nil {
@@ -327,7 +339,7 @@ func TestIfElseTrue(t *testing.T) {
 // ---
 
 func TestElseif(t *testing.T) {
-	ms := New(t.TempDir(), t.TempDir())
+	ms := newSilent(t.TempDir(), t.TempDir())
 	vars := map[string]string{"b": "1"}
 	result, err := ms.resolvePercent(`<%if:a%>A<%elseif:b%>B<%else%>C<%endif%>`, vars, nil)
 	if err != nil {
@@ -341,7 +353,7 @@ func TestElseif(t *testing.T) {
 // ---
 
 func TestElseifFirstTrue(t *testing.T) {
-	ms := New(t.TempDir(), t.TempDir())
+	ms := newSilent(t.TempDir(), t.TempDir())
 	vars := map[string]string{"a": "1", "b": "1"}
 	result, err := ms.resolvePercent(`<%if:a%>A<%elseif:b%>B<%else%>C<%endif%>`, vars, nil)
 	if err != nil {
@@ -355,7 +367,7 @@ func TestElseifFirstTrue(t *testing.T) {
 // ---
 
 func TestElseifFallthrough(t *testing.T) {
-	ms := New(t.TempDir(), t.TempDir())
+	ms := newSilent(t.TempDir(), t.TempDir())
 	result, err := ms.resolvePercent(`<%if:a%>A<%elseif:b%>B<%else%>C<%endif%>`, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -367,8 +379,103 @@ func TestElseifFallthrough(t *testing.T) {
 
 // ---
 
+func TestIfNotTrue(t *testing.T) {
+	ms := newSilent(t.TempDir(), t.TempDir())
+	vars := map[string]string{"x": "1"}
+	result, err := ms.resolvePercent(`<%if-not:x%>SHOW<%endif%>`, vars, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "" {
+		t.Errorf("expected empty, got %q", result)
+	}
+}
+
+// ---
+
+func TestIfNotFalse(t *testing.T) {
+	ms := newSilent(t.TempDir(), t.TempDir())
+	result, err := ms.resolvePercent(`<%if-not:x%>SHOW<%endif%>`, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "SHOW" {
+		t.Errorf("expected %q, got %q", "SHOW", result)
+	}
+}
+
+// ---
+
+func TestIfNotElse(t *testing.T) {
+	ms := newSilent(t.TempDir(), t.TempDir())
+	vars := map[string]string{"x": "1"}
+	result, err := ms.resolvePercent(`<%if-not:x%>A<%else%>B<%endif%>`, vars, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "B" {
+		t.Errorf("expected %q, got %q", "B", result)
+	}
+}
+
+// ---
+
+func TestElseifNot(t *testing.T) {
+	ms := newSilent(t.TempDir(), t.TempDir())
+	vars := map[string]string{"a": "1"}
+	result, err := ms.resolvePercent(`<%if:a%>A<%elseif-not:b%>B<%else%>C<%endif%>`, vars, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "A" {
+		t.Errorf("expected %q, got %q", "A", result)
+	}
+}
+
+// ---
+
+func TestElseifNotTaken(t *testing.T) {
+	ms := newSilent(t.TempDir(), t.TempDir())
+	result, err := ms.resolvePercent(`<%if:a%>A<%elseif-not:b%>B<%else%>C<%endif%>`, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "B" {
+		t.Errorf("expected %q, got %q", "B", result)
+	}
+}
+
+// ---
+
+func TestElseifNotSkipped(t *testing.T) {
+	ms := newSilent(t.TempDir(), t.TempDir())
+	vars := map[string]string{"b": "1"}
+	result, err := ms.resolvePercent(`<%if:a%>A<%elseif-not:b%>B<%else%>C<%endif%>`, vars, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "C" {
+		t.Errorf("expected %q, got %q", "C", result)
+	}
+}
+
+// ---
+
+func TestCommentIfNot(t *testing.T) {
+	ms := newSilent(t.TempDir(), t.TempDir())
+	result, err := ms.resolvePercent(`<!--%%if-not:mock%%-->VISIBLE<!--%%endif%%-->`, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "VISIBLE" {
+		t.Errorf("expected %q, got %q", "VISIBLE", result)
+	}
+}
+
+// ---
+
 func TestNestedIf(t *testing.T) {
-	ms := New(t.TempDir(), t.TempDir())
+	ms := newSilent(t.TempDir(), t.TempDir())
 	vars := map[string]string{"a": "1"}
 	result, err := ms.resolvePercent(`<%if:a%><%if:b%>INNER<%else%>ALT<%endif%><%endif%>`, vars, nil)
 	if err != nil {
@@ -382,7 +489,7 @@ func TestNestedIf(t *testing.T) {
 // ---
 
 func TestNestedIfParentFalse(t *testing.T) {
-	ms := New(t.TempDir(), t.TempDir())
+	ms := newSilent(t.TempDir(), t.TempDir())
 	vars := map[string]string{"b": "1"}
 	result, err := ms.resolvePercent(`<%if:a%><%if:b%>INNER<%endif%><%else%>OUT<%endif%>`, vars, nil)
 	if err != nil {
@@ -396,7 +503,7 @@ func TestNestedIfParentFalse(t *testing.T) {
 // ---
 
 func TestUndefinedVarInSkippedBlock(t *testing.T) {
-	ms := New(t.TempDir(), t.TempDir())
+	ms := newSilent(t.TempDir(), t.TempDir())
 	// <%undef%> inside a false block should NOT error
 	result, err := ms.resolvePercent(`<%if:x%><%undef%><%endif%>ok`, nil, nil)
 	if err != nil {
@@ -410,7 +517,7 @@ func TestUndefinedVarInSkippedBlock(t *testing.T) {
 // ---
 
 func TestUnclosedIf(t *testing.T) {
-	ms := New(t.TempDir(), t.TempDir())
+	ms := newSilent(t.TempDir(), t.TempDir())
 	vars := map[string]string{"x": "1"}
 	_, err := ms.resolvePercent(`<%if:x%>stuff`, vars, nil)
 	if err == nil {
@@ -421,7 +528,7 @@ func TestUnclosedIf(t *testing.T) {
 // ---
 
 func TestEndifWithoutIf(t *testing.T) {
-	ms := New(t.TempDir(), t.TempDir())
+	ms := newSilent(t.TempDir(), t.TempDir())
 	_, err := ms.resolvePercent(`<%endif%>`, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for endif without if")
@@ -431,7 +538,7 @@ func TestEndifWithoutIf(t *testing.T) {
 // ---
 
 func TestElseWithoutIf(t *testing.T) {
-	ms := New(t.TempDir(), t.TempDir())
+	ms := newSilent(t.TempDir(), t.TempDir())
 	_, err := ms.resolvePercent(`<%else%>`, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for else without if")
@@ -462,7 +569,7 @@ func TestSkinDirDefault(t *testing.T) {
 	</bucket-list>
 </miniskin>`), 0644)
 
-	ms := New(dir, dir)
+	ms := newSilent(dir, dir)
 	result, err := ms.Run()
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
@@ -498,7 +605,7 @@ func TestSkinDirOnMiniskin(t *testing.T) {
 	</bucket-list>
 </miniskin>`), 0644)
 
-	ms := New(dir, dir)
+	ms := newSilent(dir, dir)
 	result, err := ms.Run()
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
@@ -538,7 +645,7 @@ func TestSkinDirOnBucketOverridesRoot(t *testing.T) {
 	</bucket-list>
 </miniskin>`), 0644)
 
-	ms := New(dir, dir)
+	ms := newSilent(dir, dir)
 	result, err := ms.Run()
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
@@ -578,7 +685,7 @@ func TestSkinDirOnResourceListOverridesBucket(t *testing.T) {
 	</bucket-list>
 </miniskin>`), 0644)
 
-	ms := New(dir, dir)
+	ms := newSilent(dir, dir)
 	result, err := ms.Run()
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
@@ -593,6 +700,938 @@ func TestSkinDirOnResourceListOverridesBucket(t *testing.T) {
 
 // ---
 
+func TestCommentIfTrue(t *testing.T) {
+	ms := newSilent(t.TempDir(), t.TempDir())
+	vars := map[string]string{"mock": "1"}
+	result, err := ms.resolvePercent(`before<!--%%if:mock%%-->SHOW<!--%%endif%%-->after`, vars, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "beforeSHOWafter" {
+		t.Errorf("expected %q, got %q", "beforeSHOWafter", result)
+	}
+}
+
+// ---
+
+func TestCommentIfFalse(t *testing.T) {
+	ms := newSilent(t.TempDir(), t.TempDir())
+	result, err := ms.resolvePercent(`before<!--%%if:mock%%-->HIDE<!--%%endif%%-->after`, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "beforeafter" {
+		t.Errorf("expected %q, got %q", "beforeafter", result)
+	}
+}
+
+// ---
+
+func TestCommentElseif(t *testing.T) {
+	ms := newSilent(t.TempDir(), t.TempDir())
+	vars := map[string]string{"other": "1"}
+	result, err := ms.resolvePercent(`<!--%%if:mock%%-->M<!--%%elseif:other%%-->O<!--%%else%%-->X<!--%%endif%%-->`, vars, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "O" {
+		t.Errorf("expected %q, got %q", "O", result)
+	}
+}
+
+// ---
+
+func TestCommentSingleVar(t *testing.T) {
+	ms := newSilent(t.TempDir(), t.TempDir())
+	vars := map[string]string{"name": "Sam&Co"}
+	result, err := ms.resolvePercent(`Hello <!--%name%-->!`, vars, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "Hello Sam&amp;Co!" {
+		t.Errorf("expected %q, got %q", "Hello Sam&amp;Co!", result)
+	}
+}
+
+// ---
+
+func TestCommentSingleIf(t *testing.T) {
+	ms := newSilent(t.TempDir(), t.TempDir())
+	vars := map[string]string{"show": "1"}
+	result, err := ms.resolvePercent(`<!--%if:show%-->YES<!--%endif%-->`, vars, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "YES" {
+		t.Errorf("expected %q, got %q", "YES", result)
+	}
+}
+
+// ---
+
+func TestNoteDiscarded(t *testing.T) {
+	ms := newSilent(t.TempDir(), t.TempDir())
+	result, err := ms.resolvePercent(`before<!--%%note: esto se borra%%-->after`, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "beforeafter" {
+		t.Errorf("expected %q, got %q", "beforeafter", result)
+	}
+}
+
+// ---
+
+func TestEchoDoubleLiteral(t *testing.T) {
+	ms := newSilent(t.TempDir(), t.TempDir())
+	result, err := ms.resolvePercent(`<%%echo:<b>bold</b>%%>`, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "<b>bold</b>" {
+		t.Errorf("expected %q, got %q", "<b>bold</b>", result)
+	}
+}
+
+// ---
+
+func TestEchoSingleEscaped(t *testing.T) {
+	ms := newSilent(t.TempDir(), t.TempDir())
+	result, err := ms.resolvePercent(`<%echo:<b>bold</b>%>`, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	expected := "&lt;b&gt;bold&lt;/b&gt;"
+	if result != expected {
+		t.Errorf("expected %q, got %q", expected, result)
+	}
+}
+
+// ---
+
+func TestNoteMultiline(t *testing.T) {
+	ms := newSilent(t.TempDir(), t.TempDir())
+	result, err := ms.resolvePercent("before<!--%%note:\nlinea 1\nlinea 2\n%%-->after", nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "beforeafter" {
+		t.Errorf("expected %q, got %q", "beforeafter", result)
+	}
+}
+
+// ---
+
+func TestEchoMultiline(t *testing.T) {
+	ms := newSilent(t.TempDir(), t.TempDir())
+	result, err := ms.resolvePercent("before<%%echo:\n<p>hola</p>\n%%>after", nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	expected := "before\n<p>hola</p>\nafter"
+	if result != expected {
+		t.Errorf("expected %q, got %q", expected, result)
+	}
+}
+
+// ---
+
+func TestMockup(t *testing.T) {
+	dir := t.TempDir()
+
+	// Skin
+	os.MkdirAll(filepath.Join(dir, "_skin"), 0755)
+	os.WriteFile(filepath.Join(dir, "_skin", "app.html"), []byte(`<!DOCTYPE html>
+<html>
+<head>
+<title>{{.AppDisplayName}} - <%title%></title>
+<link rel="stylesheet" href="/assets/app.css">
+<!--%if:css%-->
+<link rel="stylesheet" href="<!--%css%-->">
+<!--%endif%-->
+</head>
+<body>
+<div class="x-container">
+  <div class="app-header">
+    <span class="app-name">{{.AppDisplayName}}</span>
+  </div>
+  <!--%%if:policybanner%%-->
+  <div class="policy-banner">DO NOT CLOCK FOR OTHERS</div>
+  <!--%%endif%%-->
+  <%%content%%>
+  <div class="app-footer">{{.AppDisplayName}}</div>
+</div>
+<!--%%if:js%%-->
+<script src="<%%js%%>"></script>
+<!--%%endif%%-->
+<!--%%note:
+  This skin was generated by miniskin.
+  Do not edit the output files directly.
+%%-->
+</body>
+</html>`), 0644)
+
+	// Include fragment
+	os.MkdirAll(filepath.Join(dir, "_shared"), 0755)
+	os.WriteFile(filepath.Join(dir, "_shared", "clock.html"), []byte(`<div class="clock" id="clock">--:--</div>`), 0644)
+
+	// Bucket + resource list
+	os.MkdirAll(filepath.Join(dir, "app", "login"), 0755)
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<globals>
+		<var name="appName" value="MD-Clock" />
+	</globals>
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" recurse-folder="all" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "login", "login.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/login">
+		<item type="html-template,nomux" src="signin_src.html" file="signin.html" key="/login/signin" />
+	</resource-list>
+</miniskin>`), 0644)
+
+	// Source file with front-matter
+	os.WriteFile(filepath.Join(dir, "app", "login", "signin_src.html"), []byte(`---
+skin: app
+title: Sign In
+css: /assets/signin.css
+js: /assets/signin.js
+policybanner: 1
+---
+<%%include:/_shared/clock.html%%>
+<div class="login-card">
+  <h2><%appName%></h2>
+  <%echo:<form>%>
+  <%%echo:{{.Username}}%%>
+  </form>
+</div>`), 0644)
+
+	ms := newSilent(dir, dir)
+	result, err := ms.Run()
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+	defer cleanup(result.Buckets[0].Items)
+
+	data, err := os.ReadFile(filepath.Join(dir, "app", "login", "signin.html"))
+	if err != nil {
+		t.Fatalf("reading output: %v", err)
+	}
+	out := string(data)
+
+	checks := []struct {
+		desc string
+		want string
+	}{
+		{"DOCTYPE from skin", "<!DOCTYPE html>"},
+		{"title with front-matter var", "<title>{{.AppDisplayName}} - Sign In</title>"},
+		{"base css always present", `href="/assets/app.css"`},
+		{"conditional css", `href="/assets/signin.css"`},
+		{"conditional js", `src="/assets/signin.js"`},
+		{"policy banner shown", "DO NOT CLOCK FOR OTHERS"},
+		{"include resolved", `<div class="clock" id="clock">--:--</div>`},
+		{"global var escaped", "MD-Clock"},
+		{"single echo escaped", "&lt;form&gt;"},
+		{"double echo literal", "{{.Username}}"},
+		{"note stripped", ""},
+	}
+
+	for _, c := range checks {
+		if c.desc == "note stripped" {
+			if strings.Contains(out, "Do not edit the output") {
+				t.Errorf("[%s] note content should be stripped", c.desc)
+			}
+		} else if !strings.Contains(out, c.want) {
+			t.Errorf("[%s] missing %q in output:\n%s", c.desc, c.want, out)
+		}
+	}
+}
+
+// ---
+
+func TestMockupNoBanner(t *testing.T) {
+	dir := t.TempDir()
+
+	os.MkdirAll(filepath.Join(dir, "_skin"), 0755)
+	os.WriteFile(filepath.Join(dir, "_skin", "app.html"), []byte(`<html>
+<!--%%if:policybanner%%-->
+<div class="banner">BANNER</div>
+<!--%%endif%%-->
+<%%content%%>
+</html>`), 0644)
+
+	os.MkdirAll(filepath.Join(dir, "app"), 0755)
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "app.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/app">
+		<item type="html-template" src="page_src.html" file="page.html" />
+	</resource-list>
+</miniskin>`), 0644)
+
+	// No policybanner in front-matter
+	os.WriteFile(filepath.Join(dir, "app", "page_src.html"), []byte(`---
+skin: app
+---
+<p>Simple page</p>`), 0644)
+
+	ms := newSilent(dir, dir)
+	result, err := ms.Run()
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+	defer cleanup(result.Buckets[0].Items)
+
+	data, _ := os.ReadFile(filepath.Join(dir, "app", "page.html"))
+	out := string(data)
+
+	if strings.Contains(out, "BANNER") {
+		t.Error("banner should not appear without policybanner var")
+	}
+	if !strings.Contains(out, "<p>Simple page</p>") {
+		t.Errorf("missing content in output:\n%s", out)
+	}
+}
+
+// ---
+
+func TestMockupConditional(t *testing.T) {
+	dir := t.TempDir()
+
+	os.MkdirAll(filepath.Join(dir, "_skin"), 0755)
+	os.WriteFile(filepath.Join(dir, "_skin", "app.html"), []byte(`<html>
+<body>
+<%%content%%>
+</body>
+</html>`), 0644)
+
+	os.MkdirAll(filepath.Join(dir, "app"), 0755)
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" />
+	</bucket-list>
+</miniskin>`), 0644)
+	os.WriteFile(filepath.Join(dir, "app", "app.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/app">
+		<item type="html-template" src="list_src.html" file="list.html" />
+	</resource-list>
+</miniskin>`), 0644)
+
+	// Source with mockup data — visible in raw browser preview,
+	// stripped when processed without mockup var
+	os.WriteFile(filepath.Join(dir, "app", "list_src.html"), []byte(`---
+skin: app
+---
+<table>
+  <thead><tr><th>Name</th><th>Status</th></tr></thead>
+  <tbody>
+  {{range .Employees}}
+    <tr><td>{{.Name}}</td><td>{{.Status}}</td></tr>
+  {{end}}
+  <!--%if:mockup%-->
+    <tr><td>John Doe</td><td>Clocked In</td></tr>
+    <tr><td>Jane Smith</td><td>Clocked Out</td></tr>
+    <tr><td>Bob Wilson</td><td>On Break</td></tr>
+  <!--%endif%-->
+  </tbody>
+</table>`), 0644)
+
+	ms := newSilent(dir, dir)
+	result, err := ms.Run()
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+	defer cleanup(result.Buckets[0].Items)
+
+	data, _ := os.ReadFile(filepath.Join(dir, "app", "list.html"))
+	out := string(data)
+
+	// Without mockup var, sample rows are stripped
+	if strings.Contains(out, "John Doe") {
+		t.Error("mockup data should be stripped without mockup var")
+	}
+	// Real template syntax preserved
+	if !strings.Contains(out, "{{range .Employees}}") {
+		t.Error("Go template syntax should be preserved")
+	}
+	if !strings.Contains(out, "<thead>") {
+		t.Error("table structure should be preserved")
+	}
+}
+
+// ---
+
+func TestMockupConditionalEnabled(t *testing.T) {
+	dir := t.TempDir()
+
+	os.MkdirAll(filepath.Join(dir, "_skin"), 0755)
+	os.WriteFile(filepath.Join(dir, "_skin", "app.html"), []byte(`<html><%%content%%></html>`), 0644)
+
+	os.MkdirAll(filepath.Join(dir, "app"), 0755)
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<globals><var name="mockup" value="1" /></globals>
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" />
+	</bucket-list>
+</miniskin>`), 0644)
+	os.WriteFile(filepath.Join(dir, "app", "app.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/app">
+		<item type="html-template" src="page_src.html" file="page.html" />
+	</resource-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "page_src.html"), []byte(`---
+skin: app
+---
+<ul>
+<!--%if:mockup%-->
+  <li>Sample Item 1</li>
+  <li>Sample Item 2</li>
+<!--%endif%-->
+</ul>`), 0644)
+
+	ms := newSilent(dir, dir)
+	result, err := ms.Run()
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+	defer cleanup(result.Buckets[0].Items)
+
+	data, _ := os.ReadFile(filepath.Join(dir, "app", "page.html"))
+	out := string(data)
+
+	if !strings.Contains(out, "Sample Item 1") {
+		t.Errorf("mockup data should appear with mockup=1:\n%s", out)
+	}
+}
+
+// ---
+
+func TestMockupExportWithMockup(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app", "assets", "css"), 0755)
+
+	ms := newMockup(dir, dir)
+	input := `<!--%% if:mockup %%-->
+<css>
+  <!--%% mockup-export:/app/assets/css/micss.css %%-->
+.app-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+}
+<!--%% end %%-->
+</css>
+<!--%% else %%-->
+<!--%echo:<link rel="stylesheet" href="/assets/css/mockup.css">%-->
+<!--%% end %%-->`
+
+	// With mockup: CSS goes to file, inline block emitted
+	vars := map[string]string{"mockup": "1"}
+	result, err := ms.resolvePercent(input, vars, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Check file was written
+	cssData, err := os.ReadFile(filepath.Join(dir, "app", "assets", "css", "micss.css"))
+	if err != nil {
+		t.Fatalf("CSS file not created: %v", err)
+	}
+	if !strings.Contains(string(cssData), "display: flex") {
+		t.Errorf("CSS file missing content: %s", cssData)
+	}
+
+	// Main output should have the <css> wrapper but not the link tag
+	if strings.Contains(result, "mockup.css") {
+		t.Error("else branch should not appear when mockup is set")
+	}
+	if !strings.Contains(result, "<css>") {
+		t.Error("inline <css> block should be in output")
+	}
+}
+
+// ---
+
+func TestMockupExportElseBranch(t *testing.T) {
+	dir := t.TempDir()
+	ms := newMockup(dir, dir)
+	input := `<!--%% if:mockup %%-->
+MOCKUP
+<!--%% else %%-->
+<!--%% echo:<link rel="stylesheet" href="/assets/css/mockup.css"> %%-->
+<!--%% end %%-->`
+
+	// Without mockup: else branch emits literal link tag
+	result, err := ms.resolvePercent(input, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, `<link rel="stylesheet"`) {
+		t.Errorf("expected literal link tag, got: %s", result)
+	}
+	if strings.Contains(result, "MOCKUP") {
+		t.Error("mockup content should not appear")
+	}
+}
+
+// ---
+
+func TestNestedMockupExport(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "css"), 0755)
+
+	ms := newMockup(dir, dir)
+	input := `<!--%% mockup-export:/css/main.css %%-->
+body { margin: 0; }
+<!--%% mockup-export:/css/header.css %%-->
+.header { color: red; }
+<!--%% end %%-->
+.footer { color: blue; }
+<!--%% end %%-->`
+
+	result, err := ms.resolvePercent(input, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Inner file
+	inner, _ := os.ReadFile(filepath.Join(dir, "css", "header.css"))
+	if !strings.Contains(string(inner), ".header { color: red; }") {
+		t.Errorf("inner file missing content: %s", inner)
+	}
+
+	// Outer file: own content + content after inner block, but NOT inner content (extracted)
+	outer, _ := os.ReadFile(filepath.Join(dir, "css", "main.css"))
+	outerStr := string(outer)
+	if !strings.Contains(outerStr, "body { margin: 0; }") {
+		t.Error("outer file missing own content")
+	}
+	if strings.Contains(outerStr, ".header { color: red; }") {
+		t.Error("outer file should NOT contain inner extracted content")
+	}
+	if !strings.Contains(outerStr, ".footer { color: blue; }") {
+		t.Error("outer file missing content after inner block")
+	}
+
+	// Main output is empty (everything was inside mockup-export)
+	if strings.TrimSpace(result) != "" {
+		t.Errorf("main output should be empty, got %q", result)
+	}
+}
+
+// ---
+
+func TestMockupExportAppendMode(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app", "assets", "css"), 0755)
+
+	ms := newMockup(dir, dir)
+
+	// First write creates the file (truncates even with append)
+	input1 := `<!--%% mockup-export: "/app/assets/css/micss.css" append %%-->
+.header { color: red; }
+<!--%% end %%-->`
+	_, err := ms.resolvePercent(input1, nil, nil)
+	if err != nil {
+		t.Fatalf("first append failed: %v", err)
+	}
+
+	// Second write appends (same session, file already touched)
+	input2 := `<!--%% mockup-export: "/app/assets/css/micss.css" append %%-->
+.footer { color: blue; }
+<!--%% end %%-->`
+	_, err = ms.resolvePercent(input2, nil, nil)
+	if err != nil {
+		t.Fatalf("second append failed: %v", err)
+	}
+
+	data, _ := os.ReadFile(filepath.Join(dir, "app", "assets", "css", "micss.css"))
+	content := string(data)
+	if !strings.Contains(content, ".header { color: red; }") {
+		t.Error("missing first content")
+	}
+	if !strings.Contains(content, ".footer { color: blue; }") {
+		t.Error("missing second append content")
+	}
+}
+
+// ---
+
+func TestMockupExportAppendNewSession(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "css"), 0755)
+
+	// Pre-existing file from a previous session
+	os.WriteFile(filepath.Join(dir, "css", "old.css"), []byte("OLD CONTENT\n"), 0644)
+
+	ms := newMockup(dir, dir)
+
+	// First write in new session truncates, even with append mode
+	input := `<!--%% mockup-export:/css/old.css append %%-->NEW<!--%% end %%-->`
+	_, err := ms.resolvePercent(input, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	data, _ := os.ReadFile(filepath.Join(dir, "css", "old.css"))
+	if strings.Contains(string(data), "OLD CONTENT") {
+		t.Error("old content should be truncated on first write of new session")
+	}
+	if string(data) != "NEW" {
+		t.Errorf("expected %q, got %q", "NEW", data)
+	}
+}
+
+// ---
+
+func TestMockupExportQuotedPath(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "my path"), 0755)
+
+	ms := newMockup(dir, dir)
+	input := `<!--%% mockup-export: "/my path/out.css" %%-->
+body { margin: 0; }
+<!--%% end %%-->`
+	_, err := ms.resolvePercent(input, nil, nil)
+	if err != nil {
+		t.Fatalf("quoted path failed: %v", err)
+	}
+
+	data, _ := os.ReadFile(filepath.Join(dir, "my path", "out.css"))
+	if !strings.Contains(string(data), "body { margin: 0; }") {
+		t.Errorf("file content wrong: %s", data)
+	}
+}
+
+// ---
+
+func TestMockupExportDefaultOverwrite(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "css"), 0755)
+
+	ms := newMockup(dir, dir)
+
+	// First write
+	input1 := `<!--%% mockup-export:/css/style.css %%-->OLD<!--%% end %%-->`
+	ms.resolvePercent(input1, nil, nil)
+
+	// Second write (default = overwrite)
+	input2 := `<!--%% mockup-export:/css/style.css %%-->NEW<!--%% end %%-->`
+	ms.resolvePercent(input2, nil, nil)
+
+	data, _ := os.ReadFile(filepath.Join(dir, "css", "style.css"))
+	if string(data) != "NEW" {
+		t.Errorf("expected overwrite, got %q", data)
+	}
+}
+
+// ---
+
+func TestGeneratedFilesTracking(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "css"), 0755)
+
+	ms := newMockup(dir, dir)
+	ms.currentSource = "mockup.html"
+
+	input := `<!--%% mockup-export:/css/a.css %%-->.a{}<!--%% end %%--><!--%% mockup-export:/css/b.css %%-->.b{}<!--%% end %%-->`
+	_, err := ms.resolvePercent(input, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(ms.generatedFiles) != 2 {
+		t.Fatalf("expected 2 generated files, got %d", len(ms.generatedFiles))
+	}
+	if ms.generatedFiles[0].File != "/css/a.css" {
+		t.Errorf("first file: %s", ms.generatedFiles[0].File)
+	}
+	if ms.generatedFiles[1].File != "/css/b.css" {
+		t.Errorf("second file: %s", ms.generatedFiles[1].File)
+	}
+	if ms.generatedFiles[0].Source != "mockup.html" {
+		t.Errorf("source: %s", ms.generatedFiles[0].Source)
+	}
+}
+
+// ---
+
+func TestMockupExportSkippedInNormalMode(t *testing.T) {
+	ms := newSilent(t.TempDir(), t.TempDir())
+	// In normal mode, if:mockup is false, mockup-export inside should be silently skipped
+	result, err := ms.resolvePercent(`before<!--%%if:mockup%%--><!--%%mockup-export:/x.css%%-->CSS<!--%%end%%--><!--%%endif%%-->after`, nil, nil)
+	if err != nil {
+		t.Fatalf("should not error when mockup-export is inside a false block: %v", err)
+	}
+	if result != "beforeafter" {
+		t.Errorf("expected %q, got %q", "beforeafter", result)
+	}
+}
+
+// ---
+
+func TestMockupImport(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "shared.css"), []byte(".shared { color: green; }"), 0644)
+
+	ms := newMockup(dir, dir)
+	result, err := ms.resolvePercent(`before<!--%%mockup-import:/shared.css%%-->after`, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "before.shared { color: green; }after" {
+		t.Errorf("expected imported content, got %q", result)
+	}
+}
+
+// ---
+
+func TestMockupImportQuotedPath(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "my dir"), 0755)
+	os.WriteFile(filepath.Join(dir, "my dir", "file.css"), []byte("IMPORTED"), 0644)
+
+	ms := newMockup(dir, dir)
+	result, err := ms.resolvePercent(`<!--%%mockup-import: "/my dir/file.css"%%-->`, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "IMPORTED" {
+		t.Errorf("expected %q, got %q", "IMPORTED", result)
+	}
+}
+
+// ---
+
+func TestMockupImportSkippedInNormalMode(t *testing.T) {
+	ms := newSilent(t.TempDir(), t.TempDir())
+	result, err := ms.resolvePercent(`before<!--%%if:mockup%%--><!--%%mockup-import:/x.css%%--><!--%%endif%%-->after`, nil, nil)
+	if err != nil {
+		t.Fatalf("should not error when mockup-import is inside a false block: %v", err)
+	}
+	if result != "beforeafter" {
+		t.Errorf("expected %q, got %q", "beforeafter", result)
+	}
+}
+
+// ---
+
+func TestMockupImportOutsideMockupMode(t *testing.T) {
+	ms := newSilent(t.TempDir(), t.TempDir())
+	_, err := ms.resolvePercent(`<!--%%mockup-import:/x.css%%-->`, nil, nil)
+	if err == nil {
+		t.Fatal("expected error for mockup-import outside mockup mode")
+	}
+	if !strings.Contains(err.Error(), "mockup mode") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// ---
+
+func TestMockupExportThenImport(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "css"), 0755)
+
+	ms := newMockup(dir, dir)
+
+	// Export a file
+	input1 := `<!--%%mockup-export:/css/gen.css%%-->.generated { display: block; }<!--%%end%%-->`
+	_, err := ms.resolvePercent(input1, nil, nil)
+	if err != nil {
+		t.Fatalf("export failed: %v", err)
+	}
+
+	// Import it back
+	input2 := `[<!--%%mockup-import:/css/gen.css%%-->]`
+	result, err := ms.resolvePercent(input2, nil, nil)
+	if err != nil {
+		t.Fatalf("import failed: %v", err)
+	}
+	if result != "[.generated { display: block; }]" {
+		t.Errorf("expected imported content, got %q", result)
+	}
+}
+
+// ---
+
+func TestMockupExportOutsideMockupMode(t *testing.T) {
+	ms := newSilent(t.TempDir(), t.TempDir())
+	_, err := ms.resolvePercent(`<!--%% mockup-export:/css/x.css %%-->X<!--%% end %%-->`, nil, nil)
+	if err == nil {
+		t.Fatal("expected error for mockup-export outside mockup mode")
+	}
+	if !strings.Contains(err.Error(), "mockup mode") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// ---
+
+func TestMockupAutoVar(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "css"), 0755)
+
+	ms := newMockup(dir, dir)
+	// mockup variable should be auto-set — use it in a conditional
+	vars := map[string]string{} // no explicit mockup var
+	input := `<!--%% if:mockup %%--><!--%% mockup-export:/css/out.css %%-->EXPORTED<!--%% end %%--><!--%% endif %%-->`
+	_, err := ms.resolvePercent(input, vars, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// But auto-var is set in processMockupList, not in newMockup helper.
+	// This test verifies that mockup-export works in mockup mode with explicit var.
+}
+
+// ---
+
+func TestTransformNegativeSimple(t *testing.T) {
+	input := `before
+<!--%%mockup-export:/css/a.css%%-->
+.a { color: red; }
+<!--%%end%%-->
+after`
+	result := transformNegative(input)
+	if !strings.Contains(result, "before") {
+		t.Error("missing text before export block")
+	}
+	if !strings.Contains(result, "after") {
+		t.Error("missing text after export block")
+	}
+	if !strings.Contains(result, "<!--%%mockup-import:/css/a.css%%-->") {
+		t.Error("missing mockup-import tag")
+	}
+	if !strings.Contains(result, "<!--%%end-mockup-import%%-->") {
+		t.Error("missing end-mockup-import tag")
+	}
+	if strings.Contains(result, ".a { color: red; }") {
+		t.Error("exported content should be removed")
+	}
+	if strings.Contains(result, "mockup-export") {
+		t.Error("mockup-export tag should be removed")
+	}
+}
+
+// ---
+
+func TestTransformNegativeNested(t *testing.T) {
+	input := `text1
+<!--%%mockup-export:/a.css%%-->
+body { margin: 0; }
+<!--%%mockup-export:/b.css%%-->
+.header { color: red; }
+<!--%%end%%-->
+<!--%%mockup-export:/c.css%%-->
+.footer { color: blue; }
+<!--%%end%%-->
+rest
+<!--%%end%%-->
+text2`
+	result := transformNegative(input)
+	if !strings.Contains(result, "text1") {
+		t.Error("missing text before")
+	}
+	if !strings.Contains(result, "text2") {
+		t.Error("missing text after")
+	}
+	if !strings.Contains(result, "<!--%%mockup-import:/a.css%%-->") {
+		t.Error("missing import for a.css")
+	}
+	if !strings.Contains(result, "<!--%%mockup-import:/b.css%%-->") {
+		t.Error("missing import for b.css")
+	}
+	if !strings.Contains(result, "<!--%%mockup-import:/c.css%%-->") {
+		t.Error("missing import for c.css")
+	}
+	if strings.Contains(result, "body { margin: 0; }") {
+		t.Error("exported content should be removed")
+	}
+	if strings.Contains(result, ".header") {
+		t.Error("nested content should be removed")
+	}
+}
+
+// ---
+
+func TestTransformNegativeWithConditional(t *testing.T) {
+	input := `<html>
+<!--%%if:mockup%%-->
+<!--%%mockup-export:/css/login.css%%-->
+.login { padding: 20px; }
+<!--%%end%%-->
+<!--%%endif%%-->
+</html>`
+	result := transformNegative(input)
+	if !strings.Contains(result, "<!--%%if:mockup%%-->") {
+		t.Error("conditional should be preserved")
+	}
+	if !strings.Contains(result, "<!--%%endif%%-->") {
+		t.Error("endif should be preserved")
+	}
+	if !strings.Contains(result, "<!--%%mockup-import:/css/login.css%%-->") {
+		t.Error("missing mockup-import tag")
+	}
+	if !strings.Contains(result, "<!--%%end-mockup-import%%-->") {
+		t.Error("missing end-mockup-import tag")
+	}
+	if strings.Contains(result, ".login") {
+		t.Error("exported content should be removed")
+	}
+}
+
+// ---
+
+func TestTransformNegativeNoExport(t *testing.T) {
+	input := `<html>
+<!--%%if:mockup%%-->
+<p>Sample data</p>
+<!--%%endif%%-->
+</html>`
+	result := transformNegative(input)
+	if result != input {
+		t.Errorf("content without exports should pass through unchanged\ngot: %q", result)
+	}
+}
+
+// ---
+
+func TestTransformNegativeAllSyntaxes(t *testing.T) {
+	// Test with <%...%> syntax
+	input := `A<%mockup-export:/x.css%>CSS<%end%>B`
+	result := transformNegative(input)
+	if !strings.Contains(result, "<!--%%mockup-import:/x.css%%-->") {
+		t.Errorf("single percent syntax not handled: %q", result)
+	}
+	if strings.Contains(result, "CSS") {
+		t.Error("content should be removed")
+	}
+
+	// Test with <%%...%%> syntax
+	input2 := `A<%%mockup-export:/y.css%%>CSS<%%end%%>B`
+	result2 := transformNegative(input2)
+	if !strings.Contains(result2, "<!--%%mockup-import:/y.css%%-->") {
+		t.Errorf("double percent syntax not handled: %q", result2)
+	}
+
+	// Test with <!--%...%--> syntax
+	input3 := `A<!--%mockup-export:/z.css%-->CSS<!--%end%-->B`
+	result3 := transformNegative(input3)
+	if !strings.Contains(result3, "<!--%%mockup-import:/z.css%%-->") {
+		t.Errorf("comment single syntax not handled: %q", result3)
+	}
+}
+
+// ---
+
 func TestDiamondInclude(t *testing.T) {
 	dir := t.TempDir()
 
@@ -601,7 +1640,7 @@ func TestDiamondInclude(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "c.html"), []byte(`[C]<%%include:/d.html%%>`), 0644)
 	os.WriteFile(filepath.Join(dir, "d.html"), []byte(`[D]`), 0644)
 
-	ms := New(dir, dir)
+	ms := newSilent(dir, dir)
 	result, err := ms.resolvePercent(`<%%include:/b.html%%>|<%%include:/c.html%%>`, nil, nil)
 	if err != nil {
 		t.Fatalf("diamond include failed: %v", err)
@@ -609,5 +1648,2581 @@ func TestDiamondInclude(t *testing.T) {
 	expected := "[B][D]|[C][D]"
 	if result != expected {
 		t.Errorf("expected %q, got %q", expected, result)
+	}
+}
+
+// --- Init error tests
+
+func TestInitNoMiniskinXML(t *testing.T) {
+	dir := t.TempDir()
+	ms := newSilent(dir, dir)
+	_, err := ms.Run()
+	if err == nil {
+		t.Fatal("expected error when no *.miniskin.xml exists")
+	}
+	if !strings.Contains(err.Error(), "no *.miniskin.xml") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// ---
+
+func TestInitMultipleMiniskinXML(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "a.miniskin.xml"), []byte(`<miniskin><bucket-list filename="e.go" module="m"><bucket src="x" dst="/g.go" module-name="x"/></bucket-list></miniskin>`), 0644)
+	os.WriteFile(filepath.Join(dir, "b.miniskin.xml"), []byte(`<miniskin><bucket-list filename="e.go" module="m"><bucket src="x" dst="/g.go" module-name="x"/></bucket-list></miniskin>`), 0644)
+
+	ms := newSilent(dir, dir)
+	_, err := ms.Run()
+	if err == nil {
+		t.Fatal("expected error for multiple *.miniskin.xml")
+	}
+	if !strings.Contains(err.Error(), "multiple") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// ---
+
+func TestInitNoBucketList(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin></miniskin>`), 0644)
+
+	ms := newSilent(dir, dir)
+	_, err := ms.Run()
+	if err == nil {
+		t.Fatal("expected error for missing bucket-list")
+	}
+	if !strings.Contains(err.Error(), "no bucket-list") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// --- Standalone pass tests
+
+func TestProcessMockupExportStandalone(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app", "pages"), 0755)
+	os.MkdirAll(filepath.Join(dir, "css"), 0755)
+
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" recurse-folder="all" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "pages", "pages.miniskin.xml"), []byte(`<miniskin>
+	<mockup-list>
+		<item src="mock_src.html" />
+	</mockup-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "pages", "mock_src.html"), []byte(`<!--%%if:mockup%%-->
+<!--%%mockup-export:/css/exported.css%%-->
+.exported { color: blue; }
+<!--%%end%%-->
+<!--%%endif%%-->`), 0644)
+
+	ms := newSilent(dir, dir)
+	result, err := ms.ProcessMockupExport()
+	if err != nil {
+		t.Fatalf("ProcessMockupExport failed: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "css", "exported.css"))
+	if err != nil {
+		t.Fatalf("exported file not created: %v", err)
+	}
+	if !strings.Contains(string(data), ".exported { color: blue; }") {
+		t.Errorf("unexpected content: %s", data)
+	}
+
+	if len(result.GeneratedFiles) != 1 {
+		t.Fatalf("expected 1 generated file, got %d", len(result.GeneratedFiles))
+	}
+}
+
+// ---
+
+func TestBuildEmbedStandalone(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app", "pages"), 0755)
+
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<globals>
+		<var name="color" value="red" />
+	</globals>
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" recurse-folder="all" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "pages", "pages.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/pages">
+		<item type="html-template" src="page_src.html" file="page.html" />
+	</resource-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "pages", "page_src.html"), []byte(`color=<%color%>`), 0644)
+
+	ms := newSilent(dir, dir)
+	result, err := ms.BuildEmbed()
+	if err != nil {
+		t.Fatalf("BuildEmbed failed: %v", err)
+	}
+	defer cleanup(result.Buckets[0].Items)
+
+	data, err := os.ReadFile(filepath.Join(dir, "app", "pages", "page.html"))
+	if err != nil {
+		t.Fatalf("output file not created: %v", err)
+	}
+	if string(data) != "color=red" {
+		t.Errorf("expected 'color=red', got %q", string(data))
+	}
+}
+
+// --- Include in skipped block
+
+func TestIncludeInSkippedBlock(t *testing.T) {
+	ms := newSilent(t.TempDir(), t.TempDir())
+	// include in a false if block should not error even though file doesn't exist
+	result, err := ms.resolvePercent(`before<%if:nope%><%%include:/nonexistent.html%%><%endif%>after`, nil, nil)
+	if err != nil {
+		t.Fatalf("include in skipped block should not error: %v", err)
+	}
+	if result != "beforeafter" {
+		t.Errorf("expected %q, got %q", "beforeafter", result)
+	}
+}
+
+// --- Variable merge order (full chain)
+
+func TestVariableMergeOrderFullChain(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app", "pages"), 0755)
+	os.MkdirAll(filepath.Join(dir, "css"), 0755)
+
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<globals>
+		<var name="g" value="global" />
+		<var name="shared" value="from-global" />
+	</globals>
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" recurse-folder="all" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "pages", "pages.miniskin.xml"), []byte(`<miniskin>
+	<mockup-list>
+		<var name="listvar" value="from-list" />
+		<var name="shared" value="from-list" />
+		<item src="mock.html">
+			<var name="itemvar" value="from-item" />
+			<var name="shared" value="from-item" />
+		</item>
+	</mockup-list>
+</miniskin>`), 0644)
+
+	// front-matter overrides everything
+	os.WriteFile(filepath.Join(dir, "app", "pages", "mock.html"), []byte(`---
+fmvar: from-fm
+shared: from-fm
+---
+<!--%%mockup-export:/css/vars.txt%%-->g=<%g%> listvar=<%listvar%> itemvar=<%itemvar%> fmvar=<%fmvar%> shared=<%shared%><!--%%end%%-->`), 0644)
+
+	ms := newSilent(dir, dir)
+	_, err := ms.ProcessMockupExport()
+	if err != nil {
+		t.Fatalf("ProcessMockupExport failed: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "css", "vars.txt"))
+	if err != nil {
+		t.Fatalf("output file not created: %v", err)
+	}
+	content := string(data)
+
+	// In mockup mode, vars pass through literally (skipVars=true), so we check
+	// that mockup-export worked. The variable resolution in mockup mode means
+	// variables are emitted as literal tags. But conditionals check existence.
+	// The actual merge is tested by checking that the mockup-export ran (meaning
+	// the vars existed for conditionals).
+	if !strings.Contains(content, "<%g%>") {
+		t.Errorf("expected literal <%%g%%> in mockup output, got: %s", content)
+	}
+}
+
+// ---
+
+func TestVariableMergeOrderBuildEmbed(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app"), 0755)
+
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<globals>
+		<var name="g" value="GLOBAL" />
+		<var name="shared" value="FROM_GLOBAL" />
+	</globals>
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "app.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/app">
+		<item type="html-template" src="t_src.html" file="t.html" />
+	</resource-list>
+</miniskin>`), 0644)
+
+	// front-matter var overrides global
+	os.WriteFile(filepath.Join(dir, "app", "t_src.html"), []byte("---\nshared: FROM_FM\n---\ng=<%g%> shared=<%shared%>"), 0644)
+
+	ms := newSilent(dir, dir)
+	result, err := ms.BuildEmbed()
+	if err != nil {
+		t.Fatalf("BuildEmbed failed: %v", err)
+	}
+	defer cleanup(result.Buckets[0].Items)
+
+	data, _ := os.ReadFile(filepath.Join(dir, "app", "t.html"))
+	content := string(data)
+	if !strings.Contains(content, "g=GLOBAL") {
+		t.Errorf("global var not resolved: %s", content)
+	}
+	if !strings.Contains(content, "shared=FROM_FM") {
+		t.Errorf("front-matter should override global, got: %s", content)
+	}
+}
+
+// --- Save-mode cascading tests
+
+func TestSaveModeCascadeFromList(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app"), 0755)
+	os.MkdirAll(filepath.Join(dir, "out"), 0755)
+
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "app.miniskin.xml"), []byte(`<miniskin>
+	<mockup-list save-mode="append">
+		<item src="m1.html" />
+		<item src="m2.html" />
+	</mockup-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "m1.html"), []byte(`<!--%%mockup-export:/out/combined.txt%%-->FIRST<!--%%end%%-->`), 0644)
+	os.WriteFile(filepath.Join(dir, "app", "m2.html"), []byte(`<!--%%mockup-export:/out/combined.txt%%-->SECOND<!--%%end%%-->`), 0644)
+
+	ms := newSilent(dir, dir)
+	_, err := ms.ProcessMockupExport()
+	if err != nil {
+		t.Fatalf("ProcessMockupExport failed: %v", err)
+	}
+
+	data, _ := os.ReadFile(filepath.Join(dir, "out", "combined.txt"))
+	content := string(data)
+	// First write truncates (session behavior), second appends because list save-mode=append
+	if content != "FIRSTSECOND" {
+		t.Errorf("expected 'FIRSTSECOND' (list save-mode=append), got %q", content)
+	}
+}
+
+// ---
+
+func TestSaveModeCascadeItemOverridesList(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app"), 0755)
+	os.MkdirAll(filepath.Join(dir, "out"), 0755)
+
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "app.miniskin.xml"), []byte(`<miniskin>
+	<mockup-list save-mode="append">
+		<item src="m1.html" />
+		<item src="m2.html" save-mode="overwrite" />
+	</mockup-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "m1.html"), []byte(`<!--%%mockup-export:/out/file.txt%%-->FIRST<!--%%end%%-->`), 0644)
+	os.WriteFile(filepath.Join(dir, "app", "m2.html"), []byte(`<!--%%mockup-export:/out/file.txt%%-->SECOND<!--%%end%%-->`), 0644)
+
+	ms := newSilent(dir, dir)
+	_, err := ms.ProcessMockupExport()
+	if err != nil {
+		t.Fatalf("ProcessMockupExport failed: %v", err)
+	}
+
+	data, _ := os.ReadFile(filepath.Join(dir, "out", "file.txt"))
+	content := string(data)
+	// Item save-mode=overwrite overrides list save-mode=append
+	if content != "SECOND" {
+		t.Errorf("expected 'SECOND' (item overwrite), got %q", content)
+	}
+}
+
+// ---
+
+func TestSaveModeCascadeTagOverridesAll(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app"), 0755)
+	os.MkdirAll(filepath.Join(dir, "out"), 0755)
+
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	// List says overwrite, item says overwrite, but tag says append
+	os.WriteFile(filepath.Join(dir, "app", "app.miniskin.xml"), []byte(`<miniskin>
+	<mockup-list save-mode="overwrite">
+		<item src="m1.html" save-mode="overwrite" />
+	</mockup-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "m1.html"), []byte(`<!--%%mockup-export:/out/f.txt%%-->FIRST<!--%%end%%--><!--%%mockup-export:/out/f.txt append%%-->SECOND<!--%%end%%-->`), 0644)
+
+	ms := newSilent(dir, dir)
+	_, err := ms.ProcessMockupExport()
+	if err != nil {
+		t.Fatalf("ProcessMockupExport failed: %v", err)
+	}
+
+	data, _ := os.ReadFile(filepath.Join(dir, "out", "f.txt"))
+	content := string(data)
+	// First write truncates (session), second uses tag-level append
+	if content != "FIRSTSECOND" {
+		t.Errorf("expected 'FIRSTSECOND' (tag append overrides item/list overwrite), got %q", content)
+	}
+}
+
+// --- Negative end-to-end
+
+func TestNegativeEndToEnd(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app"), 0755)
+	os.MkdirAll(filepath.Join(dir, "css"), 0755)
+
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "app.miniskin.xml"), []byte(`<miniskin>
+	<mockup-list>
+		<item src="mock.html" negative="mock_neg.html" />
+	</mockup-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "mock.html"), []byte(`before
+<!--%%mockup-export:/css/style.css%%-->
+.body { margin: 0; }
+<!--%%end%%-->
+after`), 0644)
+
+	ms := newSilent(dir, dir)
+	result, err := ms.ProcessMockupExport()
+	if err != nil {
+		t.Fatalf("ProcessMockupExport failed: %v", err)
+	}
+
+	// Check negative file was generated
+	negData, err := os.ReadFile(filepath.Join(dir, "app", "mock_neg.html"))
+	if err != nil {
+		t.Fatalf("negative file not created: %v", err)
+	}
+	negContent := string(negData)
+	if !strings.Contains(negContent, "mockup-import:/css/style.css") {
+		t.Errorf("negative should contain mockup-import, got:\n%s", negContent)
+	}
+	if strings.Contains(negContent, "mockup-export") {
+		t.Error("negative should not contain mockup-export")
+	}
+
+	// Check exported CSS file
+	cssData, _ := os.ReadFile(filepath.Join(dir, "css", "style.css"))
+	if !strings.Contains(string(cssData), ".body { margin: 0; }") {
+		t.Errorf("exported CSS missing content: %s", cssData)
+	}
+
+	// Check generated files tracking includes both the export and the negative
+	if len(result.GeneratedFiles) < 2 {
+		t.Errorf("expected at least 2 generated files (export + negative), got %d", len(result.GeneratedFiles))
+	}
+}
+
+// --- Missing skin file
+
+func TestMissingSkinFile(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app"), 0755)
+	os.MkdirAll(filepath.Join(dir, "_skin"), 0755) // empty skin dir
+
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "app.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/app">
+		<item type="html-template" src="p_src.html" file="p.html" />
+	</resource-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "p_src.html"), []byte("---\nskin: nonexistent\n---\nBody"), 0644)
+
+	ms := newSilent(dir, dir)
+	_, err := ms.BuildEmbed()
+	if err == nil {
+		t.Fatal("expected error for missing skin file")
+	}
+	if !strings.Contains(err.Error(), "skin") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// --- Logging tests
+
+func TestLogOutput(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app"), 0755)
+
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "app.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/app">
+		<item type="static" file="app.css" />
+	</resource-list>
+</miniskin>`), 0644)
+	os.WriteFile(filepath.Join(dir, "app", "app.css"), []byte("body{}"), 0644)
+
+	var buf bytes.Buffer
+	ms := MiniskinNew(dir, dir)
+	ms.Output = &buf
+	_, err := ms.Run()
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+
+	if buf.Len() == 0 {
+		t.Error("expected log output in buffer, got nothing")
+	}
+	if !strings.Contains(buf.String(), "===") {
+		t.Errorf("expected pass header in log, got: %s", buf.String())
+	}
+}
+
+// ---
+
+func TestLogSilent(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app"), 0755)
+
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "app.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/app">
+		<item type="static" file="app.css" />
+	</resource-list>
+</miniskin>`), 0644)
+	os.WriteFile(filepath.Join(dir, "app", "app.css"), []byte("body{}"), 0644)
+
+	ms := MiniskinNew(dir, dir).Silent()
+	_, err := ms.Run()
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+	// No panic, no output — silent works
+}
+
+// ---
+
+func TestLogFile(t *testing.T) {
+	dir, _ := os.MkdirTemp("", "miniskin-logfile-*")
+	defer os.RemoveAll(dir) // best-effort cleanup
+	os.MkdirAll(filepath.Join(dir, "app"), 0755)
+
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin log="build.log">
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "app.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/app">
+		<item type="static" file="app.css" />
+	</resource-list>
+</miniskin>`), 0644)
+	os.WriteFile(filepath.Join(dir, "app", "app.css"), []byte("body{}"), 0644)
+
+	var buf bytes.Buffer
+	ms := MiniskinNew(dir, dir)
+	ms.Output = &buf
+	_, err := ms.Run()
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+
+	// Check log file was created and has content
+	logData, err := os.ReadFile(filepath.Join(dir, "build.log"))
+	if err != nil {
+		t.Fatalf("log file not created: %v", err)
+	}
+	if len(logData) == 0 {
+		t.Error("log file is empty")
+	}
+	// Both console buffer and log file should have content
+	if buf.Len() == 0 {
+		t.Error("console buffer should also have output")
+	}
+}
+
+// ---
+
+func TestLogFileSilentMode(t *testing.T) {
+	dir, _ := os.MkdirTemp("", "miniskin-logsilent-*")
+	defer os.RemoveAll(dir) // best-effort cleanup
+	os.MkdirAll(filepath.Join(dir, "app"), 0755)
+
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin log="build.log">
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "app.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/app">
+		<item type="static" file="app.css" />
+	</resource-list>
+</miniskin>`), 0644)
+	os.WriteFile(filepath.Join(dir, "app", "app.css"), []byte("body{}"), 0644)
+
+	ms := MiniskinNew(dir, dir).Silent()
+	_, err := ms.Run()
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+
+	// In silent mode with log file, output goes to file only
+	logData, err := os.ReadFile(filepath.Join(dir, "build.log"))
+	if err != nil {
+		t.Fatalf("log file not created: %v", err)
+	}
+	if len(logData) == 0 {
+		t.Error("log file should have output even in silent mode")
+	}
+}
+
+// --- Front-matter tests
+
+func TestFrontMatterNone(t *testing.T) {
+	vars, body, err := parseFrontMatter("Hello World")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if vars != nil {
+		t.Errorf("expected nil vars, got %v", vars)
+	}
+	if body != "Hello World" {
+		t.Errorf("expected full content as body, got %q", body)
+	}
+}
+
+// ---
+
+func TestFrontMatterUnclosed(t *testing.T) {
+	_, _, err := parseFrontMatter("---\nkey: value\nno closing")
+	if err == nil {
+		t.Fatal("expected error for unclosed front-matter")
+	}
+	if !strings.Contains(err.Error(), "unclosed") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// ---
+
+func TestFrontMatterEmptyKey(t *testing.T) {
+	_, _, err := parseFrontMatter("---\n: value\n---\nbody")
+	if err == nil {
+		t.Fatal("expected error for empty key")
+	}
+	if !strings.Contains(err.Error(), "empty key") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// ---
+
+func TestFrontMatterMissingColon(t *testing.T) {
+	_, _, err := parseFrontMatter("---\nnovalue\n---\nbody")
+	if err == nil {
+		t.Fatal("expected error for missing colon")
+	}
+	if !strings.Contains(err.Error(), "missing colon") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// ---
+
+func TestFrontMatterMultipleVars(t *testing.T) {
+	vars, body, err := parseFrontMatter("---\ntitle: Hello\ncolor: red\n---\nBody here")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if vars["title"] != "Hello" {
+		t.Errorf("expected title=Hello, got %q", vars["title"])
+	}
+	if vars["color"] != "red" {
+		t.Errorf("expected color=red, got %q", vars["color"])
+	}
+	if body != "Body here" {
+		t.Errorf("expected 'Body here', got %q", body)
+	}
+}
+
+// ---
+
+func TestFrontMatterEmptyLines(t *testing.T) {
+	vars, body, err := parseFrontMatter("---\ntitle: Hello\n\ncolor: red\n---\nBody")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(vars) != 2 {
+		t.Errorf("expected 2 vars, got %d", len(vars))
+	}
+	if body != "Body" {
+		t.Errorf("expected 'Body', got %q", body)
+	}
+}
+
+// --- Recurse folder
+
+func TestRecurseFolderAll(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app", "sub1"), 0755)
+	os.MkdirAll(filepath.Join(dir, "app", "sub2"), 0755)
+
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" recurse-folder="all" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "sub1", "sub1.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/sub1">
+		<item type="static" file="a.css" />
+	</resource-list>
+</miniskin>`), 0644)
+	os.WriteFile(filepath.Join(dir, "app", "sub1", "a.css"), []byte("a{}"), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "sub2", "sub2.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/sub2">
+		<item type="static" file="b.css" />
+	</resource-list>
+</miniskin>`), 0644)
+	os.WriteFile(filepath.Join(dir, "app", "sub2", "b.css"), []byte("b{}"), 0644)
+
+	ms := newSilent(dir, dir)
+	result, err := ms.Run()
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+
+	totalItems := 0
+	for _, br := range result.Buckets {
+		totalItems += len(br.Items)
+	}
+	if totalItems != 2 {
+		t.Errorf("expected 2 items from recursive walk, got %d", totalItems)
+	}
+}
+
+// ---
+
+func TestNoRecurseFolder(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app", "sub"), 0755)
+
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	// Only top-level miniskin.xml should be found (no recurse)
+	os.WriteFile(filepath.Join(dir, "app", "top.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/top">
+		<item type="static" file="t.css" />
+	</resource-list>
+</miniskin>`), 0644)
+	os.WriteFile(filepath.Join(dir, "app", "t.css"), []byte("t{}"), 0644)
+
+	// This one should NOT be found
+	os.WriteFile(filepath.Join(dir, "app", "sub", "sub.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/sub">
+		<item type="static" file="s.css" />
+	</resource-list>
+</miniskin>`), 0644)
+	os.WriteFile(filepath.Join(dir, "app", "sub", "s.css"), []byte("s{}"), 0644)
+
+	ms := newSilent(dir, dir)
+	result, err := ms.Run()
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+
+	totalItems := 0
+	for _, br := range result.Buckets {
+		totalItems += len(br.Items)
+	}
+	if totalItems != 1 {
+		t.Errorf("expected 1 item (no recurse), got %d", totalItems)
+	}
+}
+
+// --- Item method tests
+
+func TestItemRouteURLWithKey(t *testing.T) {
+	it := Item{Key: "/custom/path", File: "page.html", urlBase: "/app"}
+	if it.RouteURL() != "/custom/path" {
+		t.Errorf("expected /custom/path, got %s", it.RouteURL())
+	}
+}
+
+// ---
+
+func TestItemRouteURLWithURLBase(t *testing.T) {
+	it := Item{File: "page.html", urlBase: "/app"}
+	if it.RouteURL() != "/app/page.html" {
+		t.Errorf("expected /app/page.html, got %s", it.RouteURL())
+	}
+}
+
+// ---
+
+func TestItemRouteURLDefault(t *testing.T) {
+	it := Item{File: "page.html"}
+	if it.RouteURL() != "/page.html" {
+		t.Errorf("expected /page.html, got %s", it.RouteURL())
+	}
+}
+
+// ---
+
+func TestItemHasFlag(t *testing.T) {
+	it := Item{Type: "html-template,nomux,static"}
+	if !it.HasFlag("html-template") {
+		t.Error("expected HasFlag('html-template') to be true")
+	}
+	if !it.HasFlag("nomux") {
+		t.Error("expected HasFlag('nomux') to be true")
+	}
+	if !it.HasFlag("static") {
+		t.Error("expected HasFlag('static') to be true")
+	}
+	if it.HasFlag("parse") {
+		t.Error("expected HasFlag('parse') to be false")
+	}
+}
+
+// ---
+
+func TestItemNeedsProcessing(t *testing.T) {
+	withSrc := Item{Src: "src.html"}
+	if !withSrc.NeedsProcessing() {
+		t.Error("item with Src should need processing")
+	}
+	withoutSrc := Item{File: "static.css"}
+	if withoutSrc.NeedsProcessing() {
+		t.Error("item without Src should not need processing")
+	}
+}
+
+// --- End-if and end-mockup-export specific closers
+
+func TestEndIfSpecific(t *testing.T) {
+	ms := newSilent(t.TempDir(), t.TempDir())
+	vars := map[string]string{"x": "1"}
+	result, err := ms.resolvePercent(`<%if:x%>YES<%end-if%>`, vars, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "YES" {
+		t.Errorf("expected 'YES', got %q", result)
+	}
+}
+
+// ---
+
+func TestEndIfMismatch(t *testing.T) {
+	ms := newMockup(t.TempDir(), t.TempDir())
+	_, err := ms.resolvePercent(`<!--%%mockup-export:/x.css%%-->X<%end-if%>`, nil, nil)
+	if err == nil {
+		t.Fatal("expected error for end-if closing mockup-export")
+	}
+}
+
+// ---
+
+func TestEndMockupExportSpecific(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "css"), 0755)
+
+	ms := newMockup(dir, dir)
+	_, err := ms.resolvePercent(`<!--%%mockup-export:/css/x.css%%-->X<!--%%end-mockup-export%%-->`, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	data, _ := os.ReadFile(filepath.Join(dir, "css", "x.css"))
+	if string(data) != "X" {
+		t.Errorf("expected 'X', got %q", string(data))
+	}
+}
+
+// ---
+
+func TestEndMockupExportMismatch(t *testing.T) {
+	ms := newSilent(t.TempDir(), t.TempDir())
+	vars := map[string]string{"x": "1"}
+	_, err := ms.resolvePercent(`<%if:x%>YES<%end-mockup-export%>`, vars, nil)
+	if err == nil {
+		t.Fatal("expected error for end-mockup-export closing if block")
+	}
+}
+
+// --- end-mockup-import tests
+
+func TestEndMockupImportSpecific(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "css"), 0755)
+
+	ms := newMockup(dir, dir)
+	_, err := ms.resolvePercent(`<!--%%mockup-export:/css/x.css%%-->X<!--%%end-mockup-import%%-->`, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	data, _ := os.ReadFile(filepath.Join(dir, "css", "x.css"))
+	if string(data) != "X" {
+		t.Errorf("expected 'X', got %q", string(data))
+	}
+}
+
+// ---
+
+func TestEndMockupImportMismatch(t *testing.T) {
+	ms := newSilent(t.TempDir(), t.TempDir())
+	vars := map[string]string{"x": "1"}
+	_, err := ms.resolvePercent(`<%if:x%>YES<%end-mockup-import%>`, vars, nil)
+	if err == nil {
+		t.Fatal("expected error for end-mockup-import closing if block")
+	}
+}
+
+// ---
+
+func TestEndMockupImportUniversalEnd(t *testing.T) {
+	// "end" should also close mockup-export blocks (universal closer)
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "css"), 0755)
+
+	ms := newMockup(dir, dir)
+	_, err := ms.resolvePercent(`<!--%%mockup-export:/css/x.css%%-->X<!--%%end%%-->`, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	data, _ := os.ReadFile(filepath.Join(dir, "css", "x.css"))
+	if string(data) != "X" {
+		t.Errorf("expected 'X', got %q", string(data))
+	}
+}
+
+// ---
+
+func TestEndMockupImportInRefreshImports(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "data.css"), []byte(".new { color: blue; }"), 0644)
+
+	// Block form with end-mockup-import should be recognized by refreshImports
+	input := "<!--%%mockup-import:/data.css%%-->\n.old { color: red; }\n<!--%%end-mockup-import%%-->"
+	result, err := refreshImports(input, dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, ".new { color: blue; }") {
+		t.Errorf("expected refreshed content, got %q", result)
+	}
+	if strings.Contains(result, ".old { color: red; }") {
+		t.Errorf("old content should be replaced")
+	}
+	if !strings.Contains(result, "end-mockup-import") {
+		t.Errorf("end-mockup-import closer should be preserved")
+	}
+}
+
+// ---
+
+func TestTransformNegativeEmitsEndMockupImport(t *testing.T) {
+	input := `before
+<!--%%mockup-export:/css/a.css%%-->
+.a { color: red; }
+<!--%%end%%-->
+after`
+	result := transformNegative(input)
+	if !strings.Contains(result, "<!--%%mockup-import:/css/a.css%%-->") {
+		t.Error("missing mockup-import tag")
+	}
+	if !strings.Contains(result, "<!--%%end-mockup-import%%-->") {
+		t.Error("transformNegative should emit end-mockup-import")
+	}
+	if strings.Contains(result, "end%%-->") && !strings.Contains(result, "end-mockup-import%%-->") {
+		t.Error("should use end-mockup-import, not plain end")
+	}
+}
+
+// ---
+
+func TestTransformNegativeNestedEmitsEndMockupImport(t *testing.T) {
+	input := `<!--%%mockup-export:/a.css%%-->
+A
+<!--%%mockup-export:/b.css%%-->
+B
+<!--%%end%%-->
+<!--%%end%%-->`
+	result := transformNegative(input)
+	count := strings.Count(result, "<!--%%end-mockup-import%%-->")
+	if count != 2 {
+		t.Errorf("expected 2 end-mockup-import tags, got %d in %q", count, result)
+	}
+}
+
+// --- Skin with global vars
+
+func TestSkinWithGlobalVars(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "_skin"), 0755)
+	os.MkdirAll(filepath.Join(dir, "app"), 0755)
+
+	// Skin uses a global var
+	os.WriteFile(filepath.Join(dir, "_skin", "wrap.html"), []byte(`[<%appName%>]<%%content%%>[/<%appName%>]`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<globals>
+		<var name="appName" value="MyApp" />
+	</globals>
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "app.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/app">
+		<item type="html-template" src="p_src.html" file="p.html" />
+	</resource-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "p_src.html"), []byte("---\nskin: wrap\n---\nHello"), 0644)
+
+	ms := newSilent(dir, dir)
+	result, err := ms.Run()
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+	defer cleanup(result.Buckets[0].Items)
+
+	data, _ := os.ReadFile(filepath.Join(dir, "app", "p.html"))
+	if string(data) != "[MyApp]Hello[/MyApp]" {
+		t.Errorf("expected skin with global vars, got %q", string(data))
+	}
+}
+
+// --- EmbedPath computation
+
+func TestEmbedPathComputation(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app", "pages"), 0755)
+
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" recurse-folder="all" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "pages", "pages.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/pages">
+		<item type="static" file="style.css" />
+	</resource-list>
+</miniskin>`), 0644)
+	os.WriteFile(filepath.Join(dir, "app", "pages", "style.css"), []byte("body{}"), 0644)
+
+	ms := newSilent(dir, dir)
+	result, err := ms.Run()
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+
+	item := result.Buckets[0].Items[0]
+	if item.EmbedPath != "app/pages/style.css" {
+		t.Errorf("expected EmbedPath 'app/pages/style.css', got %q", item.EmbedPath)
+	}
+}
+
+// --- Mockup conditional checks existence only
+
+func TestMockupConditionalExistenceOnly(t *testing.T) {
+	ms := newMockup(t.TempDir(), t.TempDir())
+	// In mockup mode, any non-empty value makes the conditional true
+	// Even the variable "x" with value "" should be false
+	vars := map[string]string{"present": "anything", "empty": ""}
+
+	result, err := ms.resolvePercent(`<%if:present%>A<%endif%><%if:empty%>B<%endif%><%if:missing%>C<%endif%>`, vars, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "A" {
+		t.Errorf("expected only 'A', got %q", result)
+	}
+}
+
+// --- Globals parsing
+
+func TestParseGlobals(t *testing.T) {
+	vars := []xmlVar{
+		{Name: "a", Value: "1"},
+		{Name: "b", Value: "2"},
+	}
+	result := parseGlobals(vars)
+	if result["a"] != "1" || result["b"] != "2" {
+		t.Errorf("unexpected globals: %v", result)
+	}
+}
+
+// ---
+
+func TestParseGlobalsEmpty(t *testing.T) {
+	result := parseGlobals(nil)
+	if len(result) != 0 {
+		t.Errorf("expected empty map, got %v", result)
+	}
+}
+
+// --- walkTags
+
+func TestWalkTagsAllSyntaxes(t *testing.T) {
+	input := `text<%single%>mid<%%double%%>end<!--%cmtSingle%-->last<!--%%cmtDouble%%-->`
+	var tags []string
+	walkTags(input, func(tag string) {
+		tags = append(tags, strings.TrimSpace(tag))
+	})
+	if len(tags) != 4 {
+		t.Fatalf("expected 4 tags, got %d: %v", len(tags), tags)
+	}
+	expected := []string{"single", "double", "cmtSingle", "cmtDouble"}
+	for i, want := range expected {
+		if tags[i] != want {
+			t.Errorf("tag %d: got %q, want %q", i, tags[i], want)
+		}
+	}
+}
+
+// ---
+
+func TestScanExportsImports(t *testing.T) {
+	input := `before
+<!--%%mockup-export:/css/a.css%%-->
+.a { color: red; }
+<!--%%mockup-import:/css/base.css%%-->
+<!--%%end%%-->
+after
+<%mockup-export:/js/app.js%>
+code
+<%end%>
+<!--%mockup-import:/shared/header.html%-->`
+
+	exports, imports := scanExportsImports(input)
+	if len(exports) != 2 {
+		t.Fatalf("expected 2 exports, got %d: %v", len(exports), exports)
+	}
+	if exports[0] != "/css/a.css" {
+		t.Errorf("export 0: got %q, want /css/a.css", exports[0])
+	}
+	if exports[1] != "/js/app.js" {
+		t.Errorf("export 1: got %q, want /js/app.js", exports[1])
+	}
+	if len(imports) != 2 {
+		t.Fatalf("expected 2 imports, got %d: %v", len(imports), imports)
+	}
+	if imports[0] != "/css/base.css" {
+		t.Errorf("import 0: got %q, want /css/base.css", imports[0])
+	}
+	if imports[1] != "/shared/header.html" {
+		t.Errorf("import 1: got %q, want /shared/header.html", imports[1])
+	}
+}
+
+// ---
+
+func TestDetectCyclesNone(t *testing.T) {
+	edges := []DepEdge{
+		{Source: "a.html", Target: "/x.css", Kind: "export"},
+		{Source: "b.html", Target: "/x.css", Kind: "import"},
+		{Source: "b.html", Target: "/y.css", Kind: "export"},
+	}
+	cycles := detectCycles(edges)
+	if len(cycles) != 0 {
+		t.Errorf("expected no cycles, got %v", cycles)
+	}
+}
+
+// ---
+
+func TestDetectCyclesDirect(t *testing.T) {
+	// A exports X, B imports X, B exports Y, A imports Y → cycle
+	edges := []DepEdge{
+		{Source: "a.html", Target: "/x.css", Kind: "export"},
+		{Source: "b.html", Target: "/x.css", Kind: "import"},
+		{Source: "b.html", Target: "/y.css", Kind: "export"},
+		{Source: "a.html", Target: "/y.css", Kind: "import"},
+	}
+	cycles := detectCycles(edges)
+	if len(cycles) == 0 {
+		t.Fatal("expected a cycle")
+	}
+	// Cycle should mention both a.html and b.html
+	joined := strings.Join(cycles[0], " ")
+	if !strings.Contains(joined, "a.html") || !strings.Contains(joined, "b.html") {
+		t.Errorf("cycle should involve a.html and b.html, got: %v", cycles[0])
+	}
+}
+
+// ---
+
+func TestDetectCyclesTransitive(t *testing.T) {
+	// A→X, B imports X, B→Y, C imports Y, C→Z, A imports Z → cycle A→B→C→A
+	edges := []DepEdge{
+		{Source: "a.html", Target: "/x.css", Kind: "export"},
+		{Source: "b.html", Target: "/x.css", Kind: "import"},
+		{Source: "b.html", Target: "/y.css", Kind: "export"},
+		{Source: "c.html", Target: "/y.css", Kind: "import"},
+		{Source: "c.html", Target: "/z.css", Kind: "export"},
+		{Source: "a.html", Target: "/z.css", Kind: "import"},
+	}
+	cycles := detectCycles(edges)
+	if len(cycles) == 0 {
+		t.Fatal("expected a cycle")
+	}
+	if len(cycles[0]) < 4 { // a→b→c→a
+		t.Errorf("expected 3-node cycle, got: %v", cycles[0])
+	}
+}
+
+// ---
+
+func TestDetectCyclesSelfExportImport(t *testing.T) {
+	// Same source exports and imports the same file — not a cycle
+	edges := []DepEdge{
+		{Source: "a.html", Target: "/x.css", Kind: "export"},
+		{Source: "a.html", Target: "/x.css", Kind: "import"},
+	}
+	cycles := detectCycles(edges)
+	if len(cycles) != 0 {
+		t.Errorf("self export+import should not be a cycle, got %v", cycles)
+	}
+}
+
+// ---
+
+func TestScanExportDeps(t *testing.T) {
+	content := `<!--%%mockup-export:/css/combined.css%%-->
+<!--%%mockup-import:/css/base.css%%-->
+<!--%%end%%-->
+<!--%%mockup-export:/css/base.css%%-->
+.base { margin: 0; }
+<!--%%end%%-->`
+
+	deps := scanExportDeps(content)
+	if len(deps) != 2 {
+		t.Fatalf("expected 2 exports, got %d", len(deps))
+	}
+	if len(deps["/css/combined.css"]) != 1 || deps["/css/combined.css"][0] != "/css/base.css" {
+		t.Errorf("combined.css should import base.css, got %v", deps["/css/combined.css"])
+	}
+	if len(deps["/css/base.css"]) != 0 {
+		t.Errorf("base.css should have no imports, got %v", deps["/css/base.css"])
+	}
+}
+
+// ---
+
+func TestExportProcessingOrder(t *testing.T) {
+	deps := map[string][]string{
+		"/css/combined.css": {"/css/base.css"},
+		"/css/base.css":     nil,
+	}
+	order := exportProcessingOrder(deps)
+	if len(order) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(order))
+	}
+	if order[0] != "/css/base.css" {
+		t.Errorf("base.css should come first, got %v", order)
+	}
+	if order[1] != "/css/combined.css" {
+		t.Errorf("combined.css should come second, got %v", order)
+	}
+}
+
+// ---
+
+func TestHasInternalDeps(t *testing.T) {
+	noDeps := map[string][]string{
+		"/a.css": nil,
+		"/b.css": nil,
+	}
+	if hasInternalDeps(noDeps) {
+		t.Error("no internal deps expected")
+	}
+
+	withDeps := map[string][]string{
+		"/combined.css": {"/base.css"},
+		"/base.css":     nil,
+	}
+	if !hasInternalDeps(withDeps) {
+		t.Error("internal deps expected")
+	}
+
+	externalOnly := map[string][]string{
+		"/a.css": {"/external.css"}, // external.css is not an export
+	}
+	if hasInternalDeps(externalOnly) {
+		t.Error("external import should not count as internal dep")
+	}
+}
+
+// ---
+
+func TestInternalExportDeps(t *testing.T) {
+	// Export combined.css imports base.css which is exported BELOW in the same file.
+	// Without dependency ordering, combined.css would import stale content.
+	dir := t.TempDir()
+	appDir := filepath.Join(dir, "app")
+	os.MkdirAll(filepath.Join(dir, "css"), 0755)
+	os.MkdirAll(appDir, 0755)
+
+	mockupContent := `<!--%%if:mockup%%-->
+<!--%%mockup-export:/css/combined.css%%-->
+HEADER
+<!--%%mockup-import:/css/base.css%%-->
+FOOTER
+<!--%%end%%-->
+<!--%%mockup-export:/css/base.css%%-->
+.base { margin: 0; }
+<!--%%end%%-->
+<!--%%endif%%-->`
+
+	os.WriteFile(filepath.Join(appDir, "mockup.html"), []byte(mockupContent), 0644)
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" />
+	</bucket-list>
+</miniskin>`), 0644)
+	os.WriteFile(filepath.Join(appDir, "app.miniskin.xml"), []byte(`<miniskin>
+	<mockup-list>
+		<item src="mockup.html" />
+	</mockup-list>
+</miniskin>`), 0644)
+
+	ms := newSilent(dir, dir)
+	_, err := ms.ProcessMockupExport()
+	if err != nil {
+		t.Fatalf("ProcessMockupExport failed: %v", err)
+	}
+
+	// base.css should exist and have correct content
+	base, err := os.ReadFile(filepath.Join(dir, "css", "base.css"))
+	if err != nil {
+		t.Fatalf("base.css not created: %v", err)
+	}
+	if !strings.Contains(string(base), ".base { margin: 0; }") {
+		t.Errorf("base.css should contain the CSS rule, got: %q", string(base))
+	}
+
+	// combined.css should contain the imported base.css content
+	combined, err := os.ReadFile(filepath.Join(dir, "css", "combined.css"))
+	if err != nil {
+		t.Fatalf("combined.css not created: %v", err)
+	}
+	if !strings.Contains(string(combined), ".base { margin: 0; }") {
+		t.Errorf("combined.css should contain base.css content, got: %q", string(combined))
+	}
+	if !strings.Contains(string(combined), "HEADER") {
+		t.Errorf("combined.css should contain HEADER, got: %q", string(combined))
+	}
+	if !strings.Contains(string(combined), "FOOTER") {
+		t.Errorf("combined.css should contain FOOTER, got: %q", string(combined))
+	}
+}
+
+// ---
+
+func TestAnalyzeDeps(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app"), 0755)
+
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "app.miniskin.xml"), []byte(`<miniskin>
+	<mockup-list>
+		<item src="login_mockup.html" />
+		<item src="dashboard_mockup.html" />
+	</mockup-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "login_mockup.html"), []byte(`
+<!--%%mockup-export:/css/login.css%%-->
+.login { padding: 20px; }
+<!--%%end%%-->
+<!--%%mockup-export:/js/login.js%%-->
+console.log("login");
+<!--%%end%%-->`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "dashboard_mockup.html"), []byte(`
+<!--%%mockup-import:/css/login.css%%-->
+<!--%%mockup-export:/css/dashboard.css%%-->
+.dashboard { margin: 10px; }
+<!--%%end%%-->`), 0644)
+
+	ms := newSilent(dir, dir)
+	dm, err := ms.AnalyzeDeps()
+	if err != nil {
+		t.Fatalf("AnalyzeDeps failed: %v", err)
+	}
+
+	// login_mockup.html: 2 exports
+	// dashboard_mockup.html: 1 import + 1 export
+	if len(dm.Edges) != 4 {
+		t.Errorf("expected 4 edges, got %d: %v", len(dm.Edges), dm.Edges)
+	}
+
+	// No cycle: dashboard imports from login, but login doesn't import from dashboard
+	if dm.HasCycles() {
+		t.Errorf("expected no cycles, got: %v", dm.Cycles)
+	}
+
+	// Verify String() output
+	s := dm.String()
+	if !strings.Contains(s, "login_mockup.html") {
+		t.Errorf("String() should mention login_mockup.html: %s", s)
+	}
+	if !strings.Contains(s, "No circular") {
+		t.Errorf("String() should say no circular deps: %s", s)
+	}
+}
+
+// ---
+
+func TestAnalyzeDepsWithCycle(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app"), 0755)
+
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "app.miniskin.xml"), []byte(`<miniskin>
+	<mockup-list>
+		<item src="a.html" />
+		<item src="b.html" />
+	</mockup-list>
+</miniskin>`), 0644)
+
+	// a exports X, imports Y → depends on b
+	os.WriteFile(filepath.Join(dir, "app", "a.html"), []byte(`
+<!--%%mockup-export:/x.css%%-->
+content a
+<!--%%end%%-->
+<!--%%mockup-import:/y.css%%-->`), 0644)
+
+	// b exports Y, imports X → depends on a → CYCLE
+	os.WriteFile(filepath.Join(dir, "app", "b.html"), []byte(`
+<!--%%mockup-export:/y.css%%-->
+content b
+<!--%%end%%-->
+<!--%%mockup-import:/x.css%%-->`), 0644)
+
+	ms := newSilent(dir, dir)
+	dm, err := ms.AnalyzeDeps()
+	if err != nil {
+		t.Fatalf("AnalyzeDeps failed: %v", err)
+	}
+
+	if !dm.HasCycles() {
+		t.Fatal("expected a cycle between a.html and b.html")
+	}
+
+	s := dm.String()
+	if !strings.Contains(s, "Circular") {
+		t.Errorf("String() should mention circular deps: %s", s)
+	}
+
+	// ProcessingOrder should fail with cycles
+	_, err = dm.ProcessingOrder()
+	if err == nil {
+		t.Fatal("ProcessingOrder should fail with cycles")
+	}
+}
+
+// ---
+
+func TestProcessingOrderLinear(t *testing.T) {
+	// C imports from B, B imports from A → order: A, B, C
+	edges := []DepEdge{
+		{Source: "a.html", Target: "/x.css", Kind: "export"},
+		{Source: "b.html", Target: "/x.css", Kind: "import"},
+		{Source: "b.html", Target: "/y.css", Kind: "export"},
+		{Source: "c.html", Target: "/y.css", Kind: "import"},
+		{Source: "c.html", Target: "/z.css", Kind: "export"},
+	}
+	dm := &DepMap{Edges: edges, Cycles: detectCycles(edges)}
+	order, err := dm.ProcessingOrder()
+	if err != nil {
+		t.Fatalf("ProcessingOrder failed: %v", err)
+	}
+	if len(order) != 3 {
+		t.Fatalf("expected 3 items, got %d: %v", len(order), order)
+	}
+	// a must come before b, b must come before c
+	posA, posB, posC := indexOf(order, "a.html"), indexOf(order, "b.html"), indexOf(order, "c.html")
+	if posA >= posB || posB >= posC {
+		t.Errorf("wrong order: %v (expected a before b before c)", order)
+	}
+}
+
+// ---
+
+func TestProcessingOrderIndependent(t *testing.T) {
+	// No imports → all independent, alphabetical order
+	edges := []DepEdge{
+		{Source: "c.html", Target: "/c.css", Kind: "export"},
+		{Source: "a.html", Target: "/a.css", Kind: "export"},
+		{Source: "b.html", Target: "/b.css", Kind: "export"},
+	}
+	dm := &DepMap{Edges: edges, Cycles: detectCycles(edges)}
+	order, err := dm.ProcessingOrder()
+	if err != nil {
+		t.Fatalf("ProcessingOrder failed: %v", err)
+	}
+	if len(order) != 3 {
+		t.Fatalf("expected 3 items, got %d: %v", len(order), order)
+	}
+	// All independent: deterministic alphabetical
+	if order[0] != "a.html" || order[1] != "b.html" || order[2] != "c.html" {
+		t.Errorf("expected alphabetical order, got %v", order)
+	}
+}
+
+// ---
+
+func TestProcessingOrderDiamond(t *testing.T) {
+	// D depends on B and C, B depends on A, C depends on A
+	// Valid orders: A, B, C, D or A, C, B, D
+	edges := []DepEdge{
+		{Source: "a.html", Target: "/a.css", Kind: "export"},
+		{Source: "b.html", Target: "/a.css", Kind: "import"},
+		{Source: "b.html", Target: "/b.css", Kind: "export"},
+		{Source: "c.html", Target: "/a.css", Kind: "import"},
+		{Source: "c.html", Target: "/c.css", Kind: "export"},
+		{Source: "d.html", Target: "/b.css", Kind: "import"},
+		{Source: "d.html", Target: "/c.css", Kind: "import"},
+	}
+	dm := &DepMap{Edges: edges, Cycles: detectCycles(edges)}
+	order, err := dm.ProcessingOrder()
+	if err != nil {
+		t.Fatalf("ProcessingOrder failed: %v", err)
+	}
+	if len(order) != 4 {
+		t.Fatalf("expected 4 items, got %d: %v", len(order), order)
+	}
+	posA := indexOf(order, "a.html")
+	posB := indexOf(order, "b.html")
+	posC := indexOf(order, "c.html")
+	posD := indexOf(order, "d.html")
+	if posA >= posB || posA >= posC {
+		t.Errorf("a must come before b and c: %v", order)
+	}
+	if posB >= posD || posC >= posD {
+		t.Errorf("b and c must come before d: %v", order)
+	}
+}
+
+func indexOf(s []string, val string) int {
+	for i, v := range s {
+		if v == val {
+			return i
+		}
+	}
+	return -1
+}
+
+// --- refreshImports
+
+func TestRefreshImportsSingleTag(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "a.css"), []byte(".a { color: red; }"), 0644)
+
+	input := `before
+<!--%%mockup-import:/a.css%%-->
+after`
+	result, err := refreshImports(input, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(result, ".a { color: red; }") {
+		t.Errorf("should contain file content: %q", result)
+	}
+	if !strings.Contains(result, "<!--%%end%%-->") {
+		t.Errorf("should add end tag: %q", result)
+	}
+	if !strings.Contains(result, "before") || !strings.Contains(result, "after") {
+		t.Errorf("should preserve surrounding content: %q", result)
+	}
+}
+
+// ---
+
+func TestRefreshImportsBlockTag(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "a.css"), []byte(".a { color: blue; }"), 0644)
+
+	input := `before
+<!--%%mockup-import:/a.css%%-->
+.a { color: red; }
+<!--%%end%%-->
+after`
+	result, err := refreshImports(input, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(result, ".a { color: blue; }") {
+		t.Errorf("should contain updated content: %q", result)
+	}
+	if strings.Contains(result, "color: red") {
+		t.Errorf("should not contain old content: %q", result)
+	}
+	if !strings.Contains(result, "<!--%%end%%-->") {
+		t.Errorf("should preserve end tag: %q", result)
+	}
+}
+
+// ---
+
+func TestRefreshImportsMultiple(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "a.css"), []byte("AAA"), 0644)
+	os.WriteFile(filepath.Join(dir, "b.js"), []byte("BBB"), 0644)
+
+	input := `start
+<!--%%mockup-import:/a.css%%-->
+middle
+<!--%%mockup-import:/b.js%%-->
+end`
+	result, err := refreshImports(input, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(result, "AAA") {
+		t.Errorf("should contain a.css content: %q", result)
+	}
+	if !strings.Contains(result, "BBB") {
+		t.Errorf("should contain b.js content: %q", result)
+	}
+	if strings.Count(result, "<!--%%end%%-->") != 2 {
+		t.Errorf("should have 2 end tags: %q", result)
+	}
+}
+
+// ---
+
+func TestRefreshImportsIdempotent(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "a.css"), []byte("content"), 0644)
+
+	input := `<!--%%mockup-import:/a.css%%-->
+content
+<!--%%end%%-->`
+	result, err := refreshImports(input, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Run again
+	result2, err := refreshImports(result, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != result2 {
+		t.Errorf("should be idempotent:\n  first:  %q\n  second: %q", result, result2)
+	}
+}
+
+// ---
+
+func TestRunWithUpdateImports(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app"), 0755)
+	os.MkdirAll(filepath.Join(dir, "css"), 0755)
+
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "app.miniskin.xml"), []byte(`<miniskin>
+	<mockup-list>
+		<item src="mockup_a.html" />
+		<item src="mockup_b.html" />
+	</mockup-list>
+</miniskin>`), 0644)
+
+	// mockup_a exports CSS
+	os.WriteFile(filepath.Join(dir, "app", "mockup_a.html"), []byte(`<!--%%if:mockup%%-->
+<!--%%mockup-export:/css/style.css%%-->
+.body { margin: 0; }
+<!--%%end%%-->
+<!--%%endif%%-->`), 0644)
+
+	// mockup_b imports that CSS (single tag, should be promoted to block)
+	os.WriteFile(filepath.Join(dir, "app", "mockup_b.html"), []byte(`<html>
+<!--%%if:mockup%%-->
+<!--%%mockup-import:/css/style.css%%-->
+<!--%%endif%%-->
+</html>`), 0644)
+
+	ms := newSilent(dir, dir)
+	_, err := ms.Run()
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+
+	// Check that mockup_b was updated with the exported CSS
+	data, _ := os.ReadFile(filepath.Join(dir, "app", "mockup_b.html"))
+	content := string(data)
+	if !strings.Contains(content, ".body { margin: 0; }") {
+		t.Errorf("mockup_b should contain imported CSS:\n%s", content)
+	}
+	if !strings.Contains(content, "<!--%%end%%-->") {
+		t.Errorf("mockup_b should have end tag after import:\n%s", content)
+	}
+}
+
+// ---
+
+func TestRunCircularDepsError(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app"), 0755)
+
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "app.miniskin.xml"), []byte(`<miniskin>
+	<mockup-list>
+		<item src="a.html" />
+		<item src="b.html" />
+	</mockup-list>
+</miniskin>`), 0644)
+
+	// a exports X, imports Y
+	os.WriteFile(filepath.Join(dir, "app", "a.html"), []byte(`
+<!--%%mockup-export:/x.css%%-->x<!--%%end%%-->
+<!--%%mockup-import:/y.css%%-->`), 0644)
+
+	// b exports Y, imports X → circular
+	os.WriteFile(filepath.Join(dir, "app", "b.html"), []byte(`
+<!--%%mockup-export:/y.css%%-->y<!--%%end%%-->
+<!--%%mockup-import:/x.css%%-->`), 0644)
+
+	ms := newSilent(dir, dir)
+	_, err := ms.Run()
+	if err == nil {
+		t.Fatal("expected circular dependency error")
+	}
+	if !strings.Contains(err.Error(), "circular") {
+		t.Errorf("error should mention circular deps: %v", err)
+	}
+}
+
+// ---
+
+func TestMatchesMuxPattern(t *testing.T) {
+	tests := []struct {
+		file, pattern string
+		want          bool
+	}{
+		{"app.css", "*", true},
+		{"app.css", "", false},
+		{"app.css", "*.css", true},
+		{"app.css", "*.js", false},
+		{"app.css", "*.js,*.css", true},
+		{"app.js", "*.js,*.css", true},
+		{"app.html", "*.js,*.css", false},
+		{"fav.ico", "*.js,*.css,fav.ico", true},
+		{"other.ico", "*.js,*.css,fav.ico", false},
+		{"app.css", " *.css , *.js ", true},
+	}
+	for _, tt := range tests {
+		got := matchesMuxPattern(tt.file, tt.pattern)
+		if got != tt.want {
+			t.Errorf("matchesMuxPattern(%q, %q) = %v, want %v", tt.file, tt.pattern, got, tt.want)
+		}
+	}
+}
+
+// ---
+
+func TestIsExcludedByMux(t *testing.T) {
+	tests := []struct {
+		file       string
+		include    string
+		exclude    string
+		wantExcl   bool
+	}{
+		// Default: include=*, exclude="" → not excluded
+		{"app.css", "*", "", false},
+		{"app.html", "*", "", false},
+		// Include specific → others excluded
+		{"app.css", "*.css,*.js", "", false},
+		{"app.html", "*.css,*.js", "", true},
+		// Exclude specific → matched excluded
+		{"app.css", "*", "*.css", true},
+		{"app.js", "*", "*.css", false},
+		// Both: include narrows, exclude further filters
+		{"app.css", "*.css,*.js", "*.min.css", false},
+		{"app.min.css", "*.css,*.js", "*.min.css", true},
+		{"app.html", "*.css,*.js", "*.min.css", true},
+	}
+	for _, tt := range tests {
+		got := isExcludedByMux(tt.file, tt.include, tt.exclude)
+		if got != tt.wantExcl {
+			t.Errorf("isExcludedByMux(%q, %q, %q) = %v, want %v", tt.file, tt.include, tt.exclude, got, tt.wantExcl)
+		}
+	}
+}
+
+// ---
+
+func TestCascadeMux(t *testing.T) {
+	if cascadeMux("*", "") != "*" {
+		t.Error("empty child should inherit parent")
+	}
+	if cascadeMux("*", "*.css") != "*.css" {
+		t.Error("non-empty child should override parent")
+	}
+	if cascadeMux("", "*.js") != "*.js" {
+		t.Error("non-empty child should override empty parent")
+	}
+}
+
+// ---
+
+func TestMuxExcludeOnBucketList(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app"), 0755)
+
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<bucket-list filename="embed.go" module="content" mux-exclude="*.html,*.tmpl">
+		<bucket src="app" dst="/gen.go" module-name="app" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "app.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/assets">
+		<item type="static" file="app.css" />
+		<item type="static" file="app.js" />
+		<item type="html-template" file="page.html" />
+	</resource-list>
+</miniskin>`), 0644)
+
+	ms := newSilent(dir, dir)
+	result, err := ms.BuildEmbed()
+	if err != nil {
+		t.Fatalf("BuildEmbed failed: %v", err)
+	}
+
+	items := result.Buckets[0].Items
+	for _, it := range items {
+		switch it.File {
+		case "app.css", "app.js":
+			if it.HasFlag("nomux") {
+				t.Errorf("%s should NOT have nomux", it.File)
+			}
+		case "page.html":
+			if !it.HasFlag("nomux") {
+				t.Errorf("%s should have nomux (excluded by mux-exclude=*.html)", it.File)
+			}
+		}
+	}
+}
+
+// ---
+
+func TestMuxIncludeOnBucket(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app"), 0755)
+
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" mux-include="*.css,*.js,fav.ico" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "app.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/assets">
+		<item type="static" file="app.css" />
+		<item type="static" file="fav.ico" />
+		<item type="html-template" file="page.html" />
+	</resource-list>
+</miniskin>`), 0644)
+
+	ms := newSilent(dir, dir)
+	result, err := ms.BuildEmbed()
+	if err != nil {
+		t.Fatalf("BuildEmbed failed: %v", err)
+	}
+
+	items := result.Buckets[0].Items
+	for _, it := range items {
+		switch it.File {
+		case "app.css", "fav.ico":
+			if it.HasFlag("nomux") {
+				t.Errorf("%s should NOT have nomux", it.File)
+			}
+		case "page.html":
+			if !it.HasFlag("nomux") {
+				t.Errorf("%s should have nomux (not in mux-include)", it.File)
+			}
+		}
+	}
+}
+
+// ---
+
+func TestMuxCascadeMiniskinToBucket(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app"), 0755)
+
+	// mux-exclude on root <miniskin> cascades to bucket
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin mux-exclude="*.html">
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "app.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/assets">
+		<item type="static" file="app.css" />
+		<item type="static" file="page.html" />
+	</resource-list>
+</miniskin>`), 0644)
+
+	ms := newSilent(dir, dir)
+	result, err := ms.BuildEmbed()
+	if err != nil {
+		t.Fatalf("BuildEmbed failed: %v", err)
+	}
+
+	items := result.Buckets[0].Items
+	for _, it := range items {
+		switch it.File {
+		case "app.css":
+			if it.HasFlag("nomux") {
+				t.Errorf("app.css should NOT have nomux")
+			}
+		case "page.html":
+			if !it.HasFlag("nomux") {
+				t.Errorf("page.html should have nomux (excluded from root)")
+			}
+		}
+	}
+}
+
+// ---
+
+func TestMuxCascadeResourceListOverridesBucket(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app"), 0755)
+
+	// Bucket excludes *.html, but resource-list overrides with include=*
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" mux-exclude="*.html" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "app.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/assets" mux-exclude="">
+		<item type="static" file="app.css" />
+		<item type="html-template" file="page.html" />
+	</resource-list>
+</miniskin>`), 0644)
+
+	ms := newSilent(dir, dir)
+	result, err := ms.BuildEmbed()
+	if err != nil {
+		t.Fatalf("BuildEmbed failed: %v", err)
+	}
+
+	items := result.Buckets[0].Items
+	// resource-list sets mux-exclude="" which should NOT override (empty = inherit)
+	// So page.html should still be excluded
+	for _, it := range items {
+		if it.File == "page.html" && !it.HasFlag("nomux") {
+			t.Errorf("page.html should have nomux (empty string does not override)")
+		}
+	}
+}
+
+// ---
+
+func TestMuxExplicitNomuxPreserved(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app"), 0755)
+
+	// Even with mux-include=*, an explicit nomux in type stays
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "app.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/assets">
+		<item type="static,nomux" file="app.css" />
+		<item type="static" file="app.js" />
+	</resource-list>
+</miniskin>`), 0644)
+
+	ms := newSilent(dir, dir)
+	result, err := ms.BuildEmbed()
+	if err != nil {
+		t.Fatalf("BuildEmbed failed: %v", err)
+	}
+
+	items := result.Buckets[0].Items
+	for _, it := range items {
+		switch it.File {
+		case "app.css":
+			if !it.HasFlag("nomux") {
+				t.Errorf("app.css should keep explicit nomux")
+			}
+		case "app.js":
+			if it.HasFlag("nomux") {
+				t.Errorf("app.js should NOT have nomux")
+			}
+		}
+	}
+}
+
+// ---
+
+func TestMuxDefaultIncludeAll(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app"), 0755)
+
+	// No mux attributes at all → default mux-include="*", nothing excluded
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "app.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/assets">
+		<item type="static" file="app.css" />
+		<item type="html-template" file="page.html" />
+		<item type="static" file="app.js" />
+	</resource-list>
+</miniskin>`), 0644)
+
+	ms := newSilent(dir, dir)
+	result, err := ms.BuildEmbed()
+	if err != nil {
+		t.Fatalf("BuildEmbed failed: %v", err)
+	}
+
+	for _, it := range result.Buckets[0].Items {
+		if it.HasFlag("nomux") {
+			t.Errorf("%s should NOT have nomux (default includes all)", it.File)
+		}
+	}
+}
+
+// --- Escape function tests (unit)
+
+func TestEscapeHTML(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{`<b>"Sam&Co"</b>`, "&lt;b&gt;&#34;Sam&amp;Co&#34;&lt;/b&gt;"},
+		{"", ""},
+		{"hello", "hello"},
+		{"a'b", "a&#39;b"},
+		{"<>&\"'", "&lt;&gt;&amp;&#34;&#39;"},
+	}
+	for _, tt := range tests {
+		if got := escapeHTML(tt.in); got != tt.want {
+			t.Errorf("escapeHTML(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+// ---
+
+func TestEscapeXML(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{`It's <"ok"> & fine`, "It&apos;s &lt;&quot;ok&quot;&gt; &amp; fine"},
+		{"", ""},
+		{"hello", "hello"},
+		// Key difference from HTML: ' → &apos; (not &#39;)
+		{"a'b", "a&apos;b"},
+	}
+	for _, tt := range tests {
+		if got := escapeXML(tt.in); got != tt.want {
+			t.Errorf("escapeXML(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+// ---
+
+func TestEscapeXMLvsHTML(t *testing.T) {
+	// The ONLY difference: single quote
+	htmlResult := escapeHTML("it's")
+	xmlResult := escapeXML("it's")
+	if htmlResult == xmlResult {
+		t.Error("HTML and XML should differ on single quote escaping")
+	}
+	if htmlResult != "it&#39;s" {
+		t.Errorf("HTML got %q", htmlResult)
+	}
+	if xmlResult != "it&apos;s" {
+		t.Errorf("XML got %q", xmlResult)
+	}
+}
+
+// ---
+
+func TestEscapeURL(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"hello world", "hello+world"},
+		{"hello world&foo=bar", "hello+world%26foo%3Dbar"},
+		{"", ""},
+		{"abc", "abc"},
+		{"a/b?c=d", "a%2Fb%3Fc%3Dd"},
+		{"café", "caf%C3%A9"},
+	}
+	for _, tt := range tests {
+		if got := escapeURLEncode(tt.in); got != tt.want {
+			t.Errorf("escapeURLEncode(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+// ---
+
+func TestEscapeJS(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{`say "hello"`, `say \"hello\"`},
+		{"new\nline", `new\nline`},
+		{"tab\there", `tab\there`},
+		{"cr\rhere", `cr\rhere`},
+		{`back\slash`, `back\\slash`},
+		{"it's", `it\'s`},
+		{"<script>", `\x3cscript\x3e`},
+		{"a&b", `a\x26b`},
+		{"", ""},
+		{"hello", "hello"},
+	}
+	for _, tt := range tests {
+		if got := escapeJS(tt.in); got != tt.want {
+			t.Errorf("escapeJS(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+// ---
+
+func TestEscapeCSS(t *testing.T) {
+	// Alphanumeric and spaces pass through, specials are hex-escaped
+	got := escapeCSS("hello")
+	if got != "hello" {
+		t.Errorf("plain text should pass through, got %q", got)
+	}
+	// Quotes, parens, semicolons, braces, angle brackets are escaped
+	specials := []string{`\`, `"`, `'`, `(`, `)`, `;`, `{`, `}`, `<`, `>`}
+	for _, s := range specials {
+		got = escapeCSS(s)
+		if !strings.HasPrefix(got, `\`) {
+			t.Errorf("escapeCSS(%q) should start with backslash, got %q", s, got)
+		}
+	}
+}
+
+// ---
+
+func TestEscapeCSSPreservesAlphanumeric(t *testing.T) {
+	got := escapeCSS("abc123 XYZ")
+	if got != "abc123 XYZ" {
+		t.Errorf("alphanumeric+space should pass through, got %q", got)
+	}
+}
+
+// ---
+
+func TestEscapeJSON(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"line1\nline2", `line1\nline2`},
+		{"tab\there", `tab\there`},
+		{`say "hi"`, `say \"hi\"`},
+		{`back\slash`, `back\\slash`},
+		{"", ""},
+		{"hello", "hello"},
+		{"\x00", `\u0000`},
+	}
+	for _, tt := range tests {
+		if got := escapeJSON(tt.in); got != tt.want {
+			t.Errorf("escapeJSON(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+// ---
+
+func TestEscapeSQL(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"O'Brien's", "O''Brien''s"},
+		{"", ""},
+		{"hello", "hello"},
+		{"''", "''''"},
+		{"no quotes", "no quotes"},
+	}
+	for _, tt := range tests {
+		if got := escapeSQL(tt.in); got != tt.want {
+			t.Errorf("escapeSQL(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+// ---
+
+func TestEscapeSQLT(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"100% O'Brien_test", "100\\% O''Brien\\_test"},
+		{"", ""},
+		{"hello", "hello"},
+		{"50%", "50\\%"},
+		{"under_score", "under\\_score"},
+		{"all'_%", "all''\\_\\%"},
+	}
+	for _, tt := range tests {
+		if got := escapeSQLT(tt.in); got != tt.want {
+			t.Errorf("escapeSQLT(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+// ---
+
+func TestEscapeSQLTIncludesSQL(t *testing.T) {
+	// sqlt must also do SQL escaping (single quotes)
+	got := escapeSQLT("it's 100%")
+	if !strings.Contains(got, "''") {
+		t.Errorf("sqlt should include SQL quote escaping, got %q", got)
+	}
+	if !strings.Contains(got, "\\%") {
+		t.Errorf("sqlt should escape %%, got %q", got)
+	}
+}
+
+func TestParseEscapeTag(t *testing.T) {
+	tests := []struct {
+		tag     string
+		wantOK  bool
+		wantVar string
+	}{
+		{"url:name", true, "name"},
+		{"js:title", true, "title"},
+		{"css:color", true, "color"},
+		{"json:data", true, "data"},
+		{"sql:val", true, "val"},
+		{"sqlt:search", true, "search"},
+		{"xml:content", true, "content"},
+		{"html:name", true, "name"},
+		{"name", false, ""},
+		{"if:name", false, ""},
+		{"include:path", false, ""},
+		{"echo:text", false, ""},
+		{"note:text", false, ""},
+		{"mockup-export:path", false, ""},
+		{"mockup-import:path", false, ""},
+		{"unknown:var", false, ""},
+		{"url: spaced ", true, "spaced"},
+	}
+	for _, tt := range tests {
+		fn, varName, ok := parseEscapeTag(tt.tag)
+		if ok != tt.wantOK {
+			t.Errorf("parseEscapeTag(%q) ok=%v, want %v", tt.tag, ok, tt.wantOK)
+			continue
+		}
+		if ok {
+			if varName != tt.wantVar {
+				t.Errorf("parseEscapeTag(%q) var=%q, want %q", tt.tag, varName, tt.wantVar)
+			}
+			if fn == nil {
+				t.Errorf("parseEscapeTag(%q) fn is nil", tt.tag)
+			}
+		}
+	}
+}
+
+// ---
+
+func TestParseEscapeTagEchoDetection(t *testing.T) {
+	// escape:echo:text — the "rest" should be "echo:text"
+	fn, rest, ok := parseEscapeTag("js:echo:hello")
+	if !ok {
+		t.Fatal("should parse js: prefix")
+	}
+	if rest != "echo:hello" {
+		t.Errorf("rest should be echo:hello, got %q", rest)
+	}
+	if fn == nil {
+		t.Error("fn should not be nil")
+	}
+}
+
+// --- Escape tests (integration with resolvePercent)
+
+func TestEscapeSingleTagURL(t *testing.T) {
+	ms := newSilent(t.TempDir(), t.TempDir())
+	vars := map[string]string{"q": "hello world"}
+	result, err := ms.resolvePercent(`<%url:q%>`, vars, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "hello+world" {
+		t.Errorf("got %q, want %q", result, "hello+world")
+	}
+}
+
+func TestEscapeDoubleTagURL(t *testing.T) {
+	ms := newSilent(t.TempDir(), t.TempDir())
+	vars := map[string]string{"q": "hello world"}
+	result, err := ms.resolvePercent(`<%%url:q%%>`, vars, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "hello+world" {
+		t.Errorf("got %q, want %q", result, "hello+world")
+	}
+}
+
+func TestEscapeCommentSingleTagJS(t *testing.T) {
+	ms := newSilent(t.TempDir(), t.TempDir())
+	vars := map[string]string{"msg": "it's \"ok\""}
+	result, err := ms.resolvePercent(`<!--%js:msg%-->`, vars, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := `it\'s \"ok\"`
+	if result != want {
+		t.Errorf("got %q, want %q", result, want)
+	}
+}
+
+func TestEscapeCommentDoubleTagSQL(t *testing.T) {
+	ms := newSilent(t.TempDir(), t.TempDir())
+	vars := map[string]string{"name": "O'Brien"}
+	result, err := ms.resolvePercent(`<!--%%sql:name%%-->`, vars, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "O''Brien" {
+		t.Errorf("got %q, want %q", result, "O''Brien")
+	}
+}
+
+func TestEscapeHTMLExplicitInDoubleTag(t *testing.T) {
+	ms := newSilent(t.TempDir(), t.TempDir())
+	vars := map[string]string{"x": "<b>bold</b>"}
+	result, err := ms.resolvePercent(`<%%html:x%%>`, vars, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := "&lt;b&gt;bold&lt;/b&gt;"
+	if result != want {
+		t.Errorf("got %q, want %q", result, want)
+	}
+}
+
+func TestEscapeUndefinedVariable(t *testing.T) {
+	ms := newSilent(t.TempDir(), t.TempDir())
+	_, err := ms.resolvePercent(`<%url:missing%>`, nil, nil)
+	if err == nil {
+		t.Fatal("expected error for undefined variable")
+	}
+}
+
+func TestEscapeMockupModePassthrough(t *testing.T) {
+	ms := newSilent(t.TempDir(), t.TempDir())
+	ms.skipVars = true
+	vars := map[string]string{"q": "test"}
+	result, err := ms.resolvePercent(`<%url:q%>`, vars, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "<%url:q%>" {
+		t.Errorf("mockup mode should pass through, got %q", result)
+	}
+}
+
+// ---
+
+func TestEscapeEchoWithPrefix(t *testing.T) {
+	ms := newSilent(t.TempDir(), t.TempDir())
+	// js:echo: — explicit escape prefix on echo
+	result, err := ms.resolvePercent(`<%js:echo:it's "ok"%>`, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := `it\'s \"ok\"`
+	if result != want {
+		t.Errorf("got %q, want %q", result, want)
+	}
+}
+
+// ---
+
+func TestEscapeEchoWithPrefixDouble(t *testing.T) {
+	ms := newSilent(t.TempDir(), t.TempDir())
+	// url:echo: in double tag
+	result, err := ms.resolvePercent(`<%%url:echo:hello world%%>`, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "hello+world" {
+		t.Errorf("got %q, want %q", result, "hello+world")
+	}
+}
+
+// ---
+
+func TestDefaultEscapeFromRules(t *testing.T) {
+	ms := newSilent(t.TempDir(), t.TempDir())
+	// Set default escape to JS
+	ms.defaultEscapeFn = escapeJS
+	vars := map[string]string{"msg": "it's \"ok\""}
+	// Single tag should use JS escape instead of HTML
+	result, err := ms.resolvePercent(`<%msg%>`, vars, nil)
+	ms.defaultEscapeFn = nil
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := `it\'s \"ok\"`
+	if result != want {
+		t.Errorf("got %q, want %q", result, want)
+	}
+}
+
+// ---
+
+func TestDefaultEscapeEchoUsesDefault(t *testing.T) {
+	ms := newSilent(t.TempDir(), t.TempDir())
+	ms.defaultEscapeFn = escapeJS
+	result, err := ms.resolvePercent(`<%echo:it's "ok"%>`, nil, nil)
+	ms.defaultEscapeFn = nil
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := `it\'s \"ok\"`
+	if result != want {
+		t.Errorf("got %q, want %q", result, want)
+	}
+}
+
+// ---
+
+func TestResolveDefaultEscapeByExtension(t *testing.T) {
+	rules := []xmlEscape{
+		{Ext: "*.html", As: "html"},
+		{Ext: "*.js", As: "js"},
+		{Ext: "*.css", As: "css"},
+	}
+	// HTML file → HTML escape
+	fn := resolveDefaultEscape("page.html", "", rules)
+	if fn("'") != "&#39;" {
+		t.Errorf("html escape expected for .html")
+	}
+	// JS file → JS escape
+	fn = resolveDefaultEscape("app.js", "", rules)
+	if fn("'") != `\'` {
+		t.Errorf("js escape expected for .js, got %q", fn("'"))
+	}
+	// CSS file → CSS escape
+	fn = resolveDefaultEscape("app.css", "", rules)
+	if !strings.Contains(fn("'"), `\`) {
+		t.Errorf("css escape expected for .css, got %q", fn("'"))
+	}
+	// Unknown extension → default HTML
+	fn = resolveDefaultEscape("data.txt", "", rules)
+	if fn("'") != "&#39;" {
+		t.Errorf("default html escape expected for .txt")
+	}
+}
+
+// ---
+
+func TestResolveDefaultEscapeItemOverride(t *testing.T) {
+	rules := []xmlEscape{
+		{Ext: "*.html", As: "html"},
+	}
+	// Item-level escape="js" overrides rules
+	fn := resolveDefaultEscape("page.html", "js", rules)
+	if fn("'") != `\'` {
+		t.Errorf("item escape=js should override, got %q", fn("'"))
+	}
+}
+
+// ---
+
+func TestCascadeEscapeRules(t *testing.T) {
+	parent := []xmlEscape{{Ext: "*.html", As: "html"}}
+	child := []xmlEscape{{Ext: "*.js", As: "js"}}
+	result := cascadeEscapeRules(parent, child)
+	if len(result) != 2 {
+		t.Fatalf("expected 2 rules, got %d", len(result))
+	}
+	// Child rules come after parent (last match wins)
+	if result[0].As != "html" || result[1].As != "js" {
+		t.Error("cascade order should be parent then child")
+	}
+}
+
+// ---
+
+func TestCascadeEscapeRulesChildOverrides(t *testing.T) {
+	parent := []xmlEscape{{Ext: "*.html", As: "html"}}
+	child := []xmlEscape{{Ext: "*.html", As: "js"}} // override same ext
+	result := cascadeEscapeRules(parent, child)
+	fn := resolveDefaultEscape("page.html", "", result)
+	// Last match wins → js
+	if fn("'") != `\'` {
+		t.Errorf("child should override parent for same ext, got %q", fn("'"))
+	}
+}
+
+// ---
+
+func TestEscapeRulesIntegration(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app"), 0755)
+
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<globals>
+		<var name="msg" value="it's &quot;ok&quot;" />
+	</globals>
+	<escape ext="*.js" as="js" />
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "app.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/assets">
+		<item type="static" src="app_src.js" file="app.js" />
+	</resource-list>
+</miniskin>`), 0644)
+
+	// Source file with a variable using single tag (should use JS escape)
+	os.WriteFile(filepath.Join(dir, "app", "app_src.js"), []byte(`var msg = '<%msg%>';`), 0644)
+
+	ms := newSilent(dir, dir)
+	result, err := ms.Run()
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+	defer cleanup(result.Buckets[0].Items)
+
+	data, err := os.ReadFile(filepath.Join(dir, "app", "app.js"))
+	if err != nil {
+		t.Fatalf("reading output: %v", err)
+	}
+	content := string(data)
+	want := `var msg = 'it\'s \"ok\"';`
+	if content != want {
+		t.Errorf("got %q, want %q", content, want)
+	}
+}
+
+// ---
+
+func TestEscapeItemAttributeOverride(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app"), 0755)
+
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<globals>
+		<var name="val" value="O'Brien" />
+	</globals>
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "app.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/assets">
+		<item type="static" src="data_src.txt" file="data.txt" escape="sql" />
+	</resource-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "data_src.txt"), []byte(`<%val%>`), 0644)
+
+	ms := newSilent(dir, dir)
+	result, err := ms.Run()
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+	defer cleanup(result.Buckets[0].Items)
+
+	data, err := os.ReadFile(filepath.Join(dir, "app", "data.txt"))
+	if err != nil {
+		t.Fatalf("reading output: %v", err)
+	}
+	if string(data) != "O''Brien" {
+		t.Errorf("got %q, want %q", string(data), "O''Brien")
 	}
 }

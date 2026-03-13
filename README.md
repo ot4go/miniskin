@@ -1,9 +1,17 @@
 # miniskin
 
-**This is a build-time tool for assembling templates that will be embedded into a Go binary. It performs no input sanitization, no escaping of user-supplied data, and no protection against code injection. It is designed to run during development as part of `go generate`, not at runtime. Do not expose it to untrusted input.**
+- Miniskin is a build-time template assembler for Go projects.
+- Supports Mockup-Driven Development (MDD): mockup HTML files can serve directly as source files — they render standalone in the browser and are processed at build time, eliminating the need to maintain separate mockup and source files.
+- It processes content files using an explicit asset catalog defined in `*.miniskin.xml` files and generates Go source code with `//go:embed` directives.
+- It is designed to run during development as part of `go generate`, not at runtime.
+- The tool is content-agnostic: files are treated as opaque text except for optional front-matter and percent-tag directives.
+- The parser is implemented as a finite-state machine, ensuring deterministic single-pass processing.
+- Percent-tag syntax (`<% ... %>`) coexists with Go template syntax (`{{ ... }}`) without conflicts.
 
 
-Build-time template assembler for Go projects. Processes content files (HTML, CSS, JS) with percent-tag substitution, includes, skins (layouts), and generates Go embed code.
+## Security notice
+
+miniskin performs no input sanitization, no escaping of user-supplied data, and no protection against code injection. It is a build-time tool. Do not expose it to untrusted input.
 
 ## Install
 
@@ -11,21 +19,130 @@ Build-time template assembler for Go projects. Processes content files (HTML, CS
 go get github.com/ot4go/miniskin
 ```
 
+## Why miniskin?
+
+Embedding assets in Go projects typically involves scanning directories with `//go:embed` patterns or scattering embed directives across packages. Registering those assets in an HTTP mux requires manual wiring that drifts as assets are added or removed. Layouts (headers, footers, navigation) get duplicated across templates and diverge over time.
+
+miniskin addresses these problems with an explicit XML catalog that declares exactly which files are embedded, reusable skin (layout) files that enforce structural consistency, and a code generator that produces the embed declarations and asset registration functions automatically.
+
+## Design goals
+
+1. **Explicit asset catalog** — every embedded file is declared in XML; nothing is implicitly scanned
+2. **Minimal embedded payload** — only declared assets are included in the binary
+3. **Build-time integration** — runs via `go generate`, produces deterministic output
+4. **No syntax conflict** — percent-tag syntax (`<% %>`) passes Go `{{ }}` templates through untouched
+5. **Content-agnostic processing** — files are opaque text; percent tags and front-matter are the only interpreted structures
+6. **Layout and content separation** — skins provide reusable layouts; content files declare which skin to apply via front-matter
+
 ## Concepts
 
 ### Percent tags
 
-Two types of substitution tags, resolved at generation time:
+Four equivalent syntaxes, resolved at generation time:
 
-- `<%var%>` — replaced with HTML-escaped value
-- `<%%var%%>` — replaced with literal (unescaped) value
-- `<%%include:/path/to/file%%>` — replaced with file contents (resolved recursively)
+| Syntax | Type | Behavior |
+|---|---|---|
+| `<%var%>` | single | HTML-escaped value |
+| `<%%var%%>` | double | literal (unescaped) value |
+| `<!--%var%-->` | single comment | HTML-escaped (browser-invisible) |
+| `<!--%%var%%-->` | double comment | literal (browser-invisible) |
 
-These tags coexist safely with Go `{{ }}` template syntax, which passes through untouched.
+Comment forms (`<!--%...%-->`, `<!--%%...%%-->`) are HTML comments — invisible in the browser, suitable for mockup HTML files that need to render standalone.
+
+Double percent tags also support includes: `<%%include:/path/to/file%%>`
+
+### Escape types
+
+Single tags default to HTML escaping (`escape="html"`). Double tags default to no escaping (`escape="none"`). An explicit escape prefix overrides the default in any tag syntax:
+
+```
+<%url:var%>          URL-encoded value
+<%%js:var%%>         JS-escaped value
+<!--%sql:var%-->     SQL-escaped (browser-invisible)
+<!--%%json:var%%-->  JSON-escaped (browser-invisible)
+```
+
+| Prefix | Description | Example input | Example output |
+|---|---|---|---|
+| `html` | HTML entities (default for single) | `<b>"hi"</b>` | `&lt;b&gt;&#34;hi&#34;&lt;/b&gt;` |
+| `xml` | XML entities (`&apos;` for `'`) | `it's <ok>` | `it&apos;s &lt;ok&gt;` |
+| `url` | URL encoding | `hello world` | `hello+world` |
+| `js` | JavaScript string escaping | `say "hi"\n` | `say \"hi\"\\n` |
+| `css` | CSS hex escaping | `url("x")` | `url\28 \22 x\22 \29 ` |
+| `json` | JSON string escaping | `line1\nline2` | `line1\\nline2` |
+| `sql` | SQL single-quote doubling | `O'Brien` | `O''Brien` |
+| `sqlt` | SQL LIKE (sql + `_%` escaping) | `100% O'B_x` | `100\% O''B\_x` |
+
+The `escape:echo:text` form applies an explicit escape to literal text: `<%js:echo:it's "ok"%>` outputs `it\'s \"ok\"`.
+
+### Default escape rules
+
+The `<escape>` element configures the default escape type based on file extension. It can appear in any XML block (`<miniskin>`, `<bucket-list>`, `<bucket>`, `<resource-list>`) and cascades to children:
+
+```xml
+<miniskin>
+  <escape ext="*.html,*.html.tmpl" as="html" />
+  <escape ext="*.js,*.js.tmpl" as="js" />
+  <escape ext="*.css" as="css" />
+  <escape ext="*.sql" as="sql" />
+  <bucket-list filename="embed.go" module="content">
+    <bucket src="app" dst="/gen.go" module-name="app">
+      <escape ext="*.json" as="json" />
+    </bucket>
+  </bucket-list>
+</miniskin>
+```
+
+When processing a source file, the default escape for single tags (`<%var%>`) is determined by matching the file against `<escape>` rules. If no rule matches, HTML escaping is used.
+
+Individual items can override with `escape="type"`:
+
+```xml
+<item type="static" src="data_src.txt" file="data.txt" escape="sql" />
+```
+
+Position of `<escape>` elements within a block is irrelevant. Child rules override parent rules for the same extension pattern.
+
+### Directives
+
+| Directive | Syntax | Description |
+|---|---|---|
+| `if:var` | single/double | Include content if var is defined and non-empty |
+| `if-not:var` | single/double | Include content if var is undefined or empty |
+| `elseif:var` | single/double | Checked only if all previous branches were false |
+| `elseif-not:var` | single/double | Negated elseif |
+| `else` | single/double | Fallback branch |
+| `endif` | single/double | Close conditional block |
+| `end` | single/double | Universal closer (works for if, mockup-export, mockup-import) |
+| `end-if` | single/double | Close if block (specific alias) |
+| `end-mockup-export` | single/double | Close mockup-export block (specific alias) |
+| `end-mockup-import` | single/double | Close mockup-import block (specific alias) |
+| `note:text` | single/double | Discarded silently (comment) |
+| `echo:text` | single | Emit text with HTML escaping |
+| `echo:text` | double | Emit text literally (no escaping) |
+| `include:/path` | double only | Include file contents (resolved recursively) |
+| `mockup-export:path [mode]` | all | Extract content to file (mockup mode only) |
+| `mockup-import:path` | all | Insert file contents (mockup mode only) |
+
+All directives work in all four tag syntaxes except `include:`, which requires double percent tags (single-percent tags HTML-escape the output). Examples:
+
+```html
+<!--%%if:mockup%%-->
+  <tr><td>Sample Data</td></tr>
+<!--%%endif%%-->
+
+<%note: this text is discarded%>
+
+<!--%%echo:<script>alert("literal")</script>%%-->
+
+<!--%%mockup-export: "/app/assets/css/login.css" append%%-->
+.login { padding: 20px; }
+<!--%%end%%-->
+```
 
 ### Front-matter
 
-Files with `src` can have YAML-like front-matter delimited by `---`:
+Files with a `src` attribute can have YAML-like front-matter delimited by `---`:
 
 ```
 ---
@@ -38,11 +155,11 @@ css: /assets/signin.css
 </div>
 ```
 
-Front-matter variables are available as percent-tag values. The `skin` key is special — it triggers skin application.
+Front-matter variables are available as percent-tag values. The `skin` key is special — it triggers skin application and is not passed as a variable.
 
 ### Skins
 
-A skin is an HTML layout file in `_skins/` that uses percent tags:
+A skin is an HTML layout file in the skin directory (default `_skin/`) that uses percent tags:
 
 ```html
 <!DOCTYPE html>
@@ -54,11 +171,11 @@ A skin is an HTML layout file in `_skins/` that uses percent tags:
 </html>
 ```
 
-`<%%content%%>` is replaced with the processed body of the source file. Other front-matter variables (like `<%title%>`) are available with HTML escaping.
+`<%%content%%>` is replaced with the processed body. Other front-matter variables (like `<%title%>`) are available with HTML escaping via single tags or literal via double tags.
+
+The skin directory cascades: `<miniskin skin-dir>` → `<bucket skin-dir>` → `<resource-list skin-dir>`. Default is `_skin`.
 
 ### Conditionals
-
-Control blocks using single percent-tag syntax:
 
 ```html
 <%if:user%>
@@ -70,85 +187,357 @@ Control blocks using single percent-tag syntax:
 <%endif%>
 ```
 
-- `<%if:var%>` — content is included if `var` is defined and non-empty
-- `<%elseif:var%>` — checked only if all previous branches were false
-- `<%else%>` — included if all previous branches were false
-- `<%endif%>` — closes the block
+Negated variants with `if-not:` and `elseif-not:`:
 
-Blocks can be nested. Undefined variables inside a false branch do not cause errors. Unmatched `<%endif%>`, `<%else%>`, or unclosed `<%if:...%>` blocks produce build-time errors.
+```html
+<!--%%if-not:production%%-->
+  <div class="debug-bar">Debug Mode</div>
+<!--%%endif%%-->
+```
+
+Blocks can be nested. Undefined variables inside a false branch do not cause errors.
 
 ### Includes
 
-Fragment files included via `<%%include:/path%%>`. They:
+Fragment files included via `<%%include:/path%%>`:
 
-- Are resolved relative to `contentPath`
+- Resolved relative to `contentPath`
 - Can contain their own percent tags (resolved before insertion)
-- Have no front-matter, no skin — raw fragments only
+- No front-matter, no skin — raw fragments only
 - Never written to disk — resolved in memory
 - Cycle detection: if A includes B includes A, generation fails
 
+## Mockup processing
+
+### Mockup mode
+
+Mockup files are HTML files designed to render standalone in a browser. They are declared in a `<mockup-list>` inside subdirectory `*.miniskin.xml` files (not at the root level). Mockup lists do not use a `file` attribute on items — only `src`.
+
+```xml
+<mockup-list save-mode="append">
+    <var name="policybanner" value="1" />
+    <item src="login_mockup.html">
+        <var name="title" value="Sign In" />
+    </item>
+</mockup-list>
+```
+
+In mockup mode:
+
+- The variable `mockup` is automatically set to `1`
+- **Variables are not resolved** — `<%title%>` passes through literally
+- **Conditionals check existence only** — whether a variable is defined, not its value
+- **`mockup-export`** extracts content to files (see below)
+- The main output is discarded — only mockup-export side effects matter
+
+Variable merge order: globals → mockup-list vars → item vars → front-matter vars. Skins are applied if declared in front-matter.
+
+### mockup-export / mockup-import
+
+The `mockup-export` directive extracts content from a mockup into a separate file:
+
+```html
+<!--%%if:mockup%%-->
+<!--%%mockup-export: "/app/assets/css/login.css" append%%-->
+.login-card { padding: 20px; border: 1px solid #ccc; }
+<!--%%end%%-->
+<!--%%endif%%-->
+```
+
+The `if:mockup` guard ensures the block is silently skipped during normal processing (no error). In a browser, the `<!--%%...%%-->` tags are HTML comments, so the CSS renders inline.
+
+`mockup-import` reads a file and inserts its content inline. It works as a single tag or as a block tag:
+
+```html
+<!--%%mockup-import:/app/assets/css/login.css%%-->
+```
+
+As a block tag, the inline content is kept between the import and `end` tags. The `run` command automatically updates this content from the referenced file:
+
+```html
+<!--%%mockup-import:/app/assets/css/login.css%%-->
+.login-card { padding: 20px; border: 1px solid #ccc; }
+<!--%%end%%-->
+```
+
+This keeps mockup files self-contained and browser-renderable while the exported files remain the source of truth.
+
+**Nesting:** `mockup-import` inside `mockup-export` works normally (the imported content becomes part of the export). `mockup-export` inside `mockup-import` is ignored — imported content is inserted as raw text without parsing.
+
+Quoted paths are supported for filenames with spaces: `mockup-export: "/path with spaces/file.css" append`
+
+**Save-mode cascade:** The write mode for mockup-export follows a cascade: `<mockup-list save-mode>` → `<item save-mode>` → tag-level mode (the optional `append` or `overwrite` after the path).
+
+**touchedFiles behavior:** The first write to a given file in a session always truncates (clean start per execution). Subsequent writes respect the mode: `append` adds content, `overwrite` replaces it.
+
+### Dependency analysis
+
+Mockup files that use `mockup-export` and `mockup-import` form a dependency graph. If file A exports to `/x.css` and file B imports `/x.css`, then B depends on A and A must be processed first.
+
+Dependencies are resolved at the **export block level**, not the file level. This means dependencies within the same file are also handled. If a file contains an export block that imports a path produced by another export block later in the same file, the system detects this and processes the blocks in the correct order (multiple passes over the file if needed).
+
+```html
+<!--%%mockup-export:/css/combined.css%%-->
+  <!--%%mockup-import:/css/base.css%%-->
+<!--%%end%%-->
+<!--%%mockup-export:/css/base.css%%-->
+  .base { margin: 0; }
+<!--%%end%%-->
+```
+
+In this example, `base.css` is exported first (no dependencies), then `combined.css` is exported and correctly imports the freshly written `base.css`.
+
+`AnalyzeDeps()` builds the cross-file dependency graph, detects circular dependencies, and computes the correct processing order via topological sort. `Run()` calls this automatically and returns an error if cycles are detected.
+
+```go
+ms := miniskin.MiniskinNew(contentPath, modulesPath)
+dm, err := ms.AnalyzeDeps()
+if err != nil {
+    log.Fatal(err)
+}
+fmt.Print(dm.String())
+
+order, err := dm.ProcessingOrder()
+// order: ["a_mockup.html", "b_mockup.html", ...] (dependencies first)
+```
+
+### Negative templates
+
+Adding `negative="filename"` to a mockup item generates a reverse template:
+
+```xml
+<mockup-list>
+    <item src="login_mockup.html" negative="login_negative.html" />
+</mockup-list>
+```
+
+The transformation replaces all `mockup-export:path...end` blocks with `mockup-import:path...end-mockup-import` blocks. This produces a template that imports the exported files instead of containing them inline.
+
+**Original mockup:**
+
+```html
+<!--%%if:mockup%%-->
+<!--%%mockup-export:/css/login.css%%-->
+.login { padding: 20px; }
+<!--%%end%%-->
+<!--%%endif%%-->
+```
+
+**Generated negative:**
+
+```html
+<!--%%if:mockup%%-->
+<!--%%mockup-import:/css/login.css%%-->
+<!--%%end-mockup-import%%-->
+<!--%%endif%%-->
+```
+
+Nested `mockup-export` blocks each produce one `mockup-import...end-mockup-import` block. All other content (conditionals, variables, etc.) is preserved.
+
+## API
+
+### High-level functions
+
+| Function | Description |
+|---|---|
+| `MiniskinRun(contentPath, modulesPath, verbosity...)` | Full pipeline: mockup update + build + codegen |
+| `MiniskinGenerate(contentPath, modulesPath, verbosity...)` | Build embed assets + codegen (no mockup processing) |
+| `MiniskinMockupUpdate(contentPath, modulesPath, verbosity...)` | Deps check + mockup export + refresh imports |
+| `TransformNegative(content)` | Transform a single mockup string into a negative template |
+
+### Types
+
+| Type | Constructor | Description |
+|---|---|---|
+| `Miniskin` | `MiniskinNew(contentPath, modulesPath)` | Template processor |
+| `Codegen` | `CodegenNew(contentPath, modulesPath)` | Code generator |
+| `DepMap` | _(returned by `AnalyzeDeps`)_ | Dependency graph with cycle detection |
+
+`Miniskin` methods:
+
+| Method | Description |
+|---|---|
+| `Run()` | Full pipeline: deps + export + update + build |
+| `AnalyzeDeps()` | Build dependency map, detect cycles |
+| `UpdateImports()` | Refresh inline content in mockup-import blocks |
+| `ProcessMockupExport()` | Export only (pass 1) |
+| `BuildEmbed()` | Build only (pass 2) |
+| `SetVerbosity(v)` | Set log detail level |
+| `Silent()` | Disable console output |
+
+`DepMap` methods:
+
+| Method | Description |
+|---|---|
+| `ProcessingOrder()` | Topological sort (dependencies first). Error if cycles exist |
+| `HasCycles()` | Returns true if circular dependencies were detected |
+| `String()` | Human-readable dependency map |
+
+### Verbosity
+
+Control the level of log detail:
+
+| Level | Constant | Description |
+|---|---|---|
+| 0 | `VerbositySilent` | No console output |
+| 1 | `VerbosityNormal` | Phase headers and processed items (default) |
+| 2 | `VerbosityVerbose` | + dependency analysis, processing order |
+| 3 | `VerbosityDebug` | + all internal details |
+
+```go
+ms := miniskin.MiniskinNew(contentPath, modulesPath)
+ms.SetVerbosity(miniskin.VerbosityVerbose)
+
+// Or via MiniskinRun:
+miniskin.MiniskinRun(contentPath, modulesPath, miniskin.VerbosityVerbose)
+```
+
+### Log output
+
+By default, processing steps are logged to stdout. Verbosity controls what is shown.
+
+```go
+ms.Silent()                  // disable console output
+ms.Output = os.Stderr        // redirect
+ms.Output = myWriter         // any io.Writer
+```
+
+If the XML specifies a log file, output is written to both console and file (the log file always receives output regardless of verbosity):
+
+```xml
+<miniskin log="miniskin.log">
+```
+
+### Generated files tracking
+
+`Result.GeneratedFiles` lists all files created by mockup-export and negative generation, in creation order, with their source:
+
+```go
+for _, gf := range result.GeneratedFiles {
+    fmt.Printf("%s (from: %s)\n", gf.File, gf.Source)
+}
+```
+
+## XML format
+
+All configuration uses `*.miniskin.xml` files with a `<miniskin>` root element.
+
+### Root
+
+The root XML file (in `contentPath`) declares globals, escape rules, the bucket list, and optionally a log file and skin directory:
+
+```xml
+<miniskin skin-dir="_skin" log="miniskin.log">
+  <globals>
+    <var name="appName" value="MyApp" />
+  </globals>
+
+  <escape ext="*.html,*.html.tmpl" as="html" />
+  <escape ext="*.js,*.js.tmpl" as="js" />
+
+  <bucket-list filename="generated_embed.go" module="content" import="myproject/content"
+               template="custom_embed.tmpl">
+    <bucket src="app" dst="/modules/app/reqctx/generated_assets.go"
+            module-name="reqctx" recurse-folder="all" skin-dir="app/_skin"
+            template="custom_bucket.tmpl" />
+  </bucket-list>
+</miniskin>
+```
+
+### Subdirectory
+
+Subdirectory `*.miniskin.xml` files contain a `<resource-list>` and/or a `<mockup-list>`:
+
+```xml
+<miniskin>
+  <resource-list urlbase="/assets" skin-dir="rskins">
+    <item type="static" file="app.css" />
+    <item type="static" src="combined_src.css" file="combined.css" />
+  </resource-list>
+
+  <mockup-list save-mode="overwrite">
+    <var name="policybanner" value="1" />
+    <item src="mockup_login.html" negative="login_negative.html" save-mode="append">
+      <var name="title" value="Login" />
+    </item>
+  </mockup-list>
+</miniskin>
+```
+
 ### Items
 
-Each item in a `miniskin.xml` resource list describes a content file:
+Each item in a resource list describes a content file:
 
 ```xml
 <item type="html-template,nomux,parse" src="signin_src.html" file="signin.html" key="/login/signin" />
 ```
 
 - `file` — output filename (what gets embedded)
-- `src` — source filename (optional; if present, item is processed)
+- `src` — source filename (optional; if present, item is processed through the template engine)
 - `type` — comma-separated flags: `static`, `html-template`, `nomux`, `parse`, etc.
 - `key` — logical key for asset lookup
 - `url` / `alt-url-abs` — URL routing attributes
+- `escape` — override default escape type for this item (`html`, `js`, `url`, `sql`, etc.)
 
 If `src` is absent, `file` is embedded as-is (no processing).
 
-## XML format
+### Mux include/exclude
 
-All configuration uses `*.miniskin.xml` files with a `<miniskin>` root element.
+The `mux-include` and `mux-exclude` attributes control which items are registered on the HTTP mux. Items excluded by these patterns automatically receive the `nomux` flag (they go to the `assets` map instead of being registered as routes).
 
-### Root (in contentPath)
+These attributes cascade through three levels, each overriding the parent when set:
+
+```
+<miniskin>  →  <bucket-list>  →  <bucket>  →  <resource-list>
+```
+
+| Attribute | Default | Description |
+|---|---|---|
+| `mux-include` | `*` | Comma-separated glob patterns; only matching files are included in the mux |
+| `mux-exclude` | *(empty)* | Comma-separated glob patterns; matching files are excluded from the mux |
+
+An item is excluded from the mux (gets `nomux` added to its type) if:
+- Its filename does **not** match `mux-include`, OR
+- Its filename matches `mux-exclude`
+
+Items with an explicit `nomux` flag in their `type` attribute are always excluded regardless of patterns.
+
+Example: include only static assets, exclude templates:
 
 ```xml
-<miniskin>
-  <globals>
-    <var name="appName" value="MyApp" />
-  </globals>
-
-  <bucket-list filename="generated_embed.go" module="content" import="myproject/content">
-    <bucket src="app" dst="/modules/app/reqctx/generated_assets.go"
-            module-name="reqctx" recurse-folder="all" />
+<miniskin mux-include="*.js,*.css,*.png,*.jpg,fav.ico">
+  <bucket-list filename="embed.go" module="content">
+    <bucket src="app" dst="/gen.go" module-name="app" />
   </bucket-list>
 </miniskin>
 ```
 
-- `globals` — key-value pairs available to all templates
-- `bucket-list` — defines the embed file and content buckets
-  - `filename` — output Go file for embed declarations
-  - `module` — Go package name for the embed file
-  - `import` — full import path for the embed package
-  - `template` — (optional) custom Go template for embed file generation
-- `bucket` — maps a source directory to a generated Go file
-  - `src` — source directory under contentPath
-  - `dst` — destination Go file path (relative to modulesPath)
-  - `module-name` — Go package name for the generated file
-  - `recurse-folder="all"` — walk subdirectories for `*.miniskin.xml`
-  - `template` — (optional) custom Go template for this bucket
-
-### Subdirectory
+Equivalent using `mux-exclude`:
 
 ```xml
-<miniskin>
-  <resource-list urlbase="/assets">
-    <item type="static" file="app.css" />
-    <item type="static" src="combined_src.css" file="combined.css" />
-  </resource-list>
+<miniskin mux-exclude="*.html,*.tmpl">
+  <bucket-list filename="embed.go" module="content">
+    <bucket src="app" dst="/gen.go" module-name="app" />
+  </bucket-list>
 </miniskin>
 ```
 
+Override at a lower level:
+
+```xml
+<bucket-list mux-exclude="*.html">
+  <bucket src="api" dst="/gen.go" module-name="api" mux-exclude="" />
+  <!-- api bucket inherits mux-exclude="" only if non-empty; empty = inherit parent -->
+</bucket-list>
+```
+
+Patterns use Go's `filepath.Match` syntax (e.g. `*.css`, `fav.ico`, `app-*.js`).
+
 ## Generated Go code
 
-### Embed file (generated_embed.go)
+### Embed file
+
+The embed file (e.g. `generated_embed.go`) contains one `//go:embed` directive and `[]byte` variable per item:
 
 ```go
 package content
@@ -159,30 +548,67 @@ import _ "embed"
 var AppAssetsAppCss []byte
 ```
 
-One `[]byte` variable per item. Direct pointer to binary segment — no copy, no decompression.
+Each variable is a direct pointer to a binary segment — no copy, no decompression.
 
-### Bucket file (default template)
+### Bucket file
 
-The default template generates:
+miniskin includes two built-in bucket templates, selectable via the `template` attribute:
+
+#### `miniskin::default`
+
+Used when no `template` attribute is specified. Generates an `Asset` type, an asset slice, and generic lookup/registration functions:
 
 ```go
-// Asset type with Key, Data, Mime, Type fields
-// allAssets slice with all items
-// parsedTemplates map for items with "parse" flag
+type Asset struct {
+    Key  string
+    Data []byte
+    Mime string
+    Type string
+}
 
-func Assets() []Asset              // all assets
-func Get(key string) *Asset        // by key
-func GetParsedTemplate(key) *template.Template  // pre-parsed templates
-func StaticFiles() []Asset         // items with "static" flag
-func Templates() []Asset           // items with "html-template" flag
-func RegisterRoutes(fn func(url, mime string, data []byte))  // static, non-nomux
+func Assets() []Asset
+func Get(key string) *Asset
+func GetParsedTemplate(key string) *template.Template
+func StaticFiles() []Asset
+func Templates() []Asset
+func RegisterRoutes(fn func(url, mime string, data []byte))
 ```
 
-Items with the `parse` flag are pre-parsed as `*template.Template` at init time.
+Items with the `parse` flag are pre-parsed as `*template.Template` at init time. `RegisterRoutes` calls the callback for each `static` item not flagged `nomux`.
+
+#### `miniskin::mux`
+
+Generates code that registers routes directly on an `*http.ServeMux`:
+
+```go
+func RegisterRoutes(mux *http.ServeMux, tmplHandlers map[string]http.HandlerFunc)
+func GetParsedTemplate(key string) *template.Template
+var Templates map[string][]byte
+```
+
+`RegisterRoutes` registers static files with exact-path matching and wires template routes via the `tmplHandlers` map.
+
+Usage in XML:
+
+```xml
+<bucket template="miniskin::mux" ... />
+```
 
 ## Custom templates
 
-Both the embed file and bucket files support custom Go `text/template` templates.
+The `template` attribute on `<bucket-list>` and `<bucket>` accepts three forms:
+
+| Value | Source |
+|---|---|
+| _(empty)_ | Built-in `miniskin::default` |
+| `miniskin::name` | Built-in named template |
+| `path/to/file.tmpl` | Custom template file relative to contentPath |
+
+```xml
+<bucket-list template="my_embed.tmpl" ...>
+    <bucket template="miniskin::mux" ... />
+</bucket-list>
+```
 
 ### Embed template
 
@@ -192,30 +618,116 @@ Available functions: `embedPath`, `embedVar`. Data: full `Result` struct.
 
 Available functions: `embedVar`, `mimeType`, `hasFlag`, `embedPkg`, `embedImport`. Data: `BucketList`, `Bucket`, `Items`.
 
-If you use a custom embed template, you must also provide custom bucket templates (since variable names may differ).
+If a custom embed template is used, custom bucket templates must also be provided (since variable names may differ).
 
 ## Usage
 
+The simplest way — one function call:
+
 ```go
-package main
-
-import (
-    "log"
-    "github.com/ot4go/miniskin"
-)
-
-func main() {
-    ms := miniskin.New("/path/to/content", "/path/to/modules")
-
-    result, err := ms.Run()
-    if err != nil {
-        log.Fatalf("miniskin: %v", err)
-    }
-
-    if err := ms.GenerateAll(result); err != nil {
-        log.Fatalf("miniskin generate: %v", err)
-    }
+if err := miniskin.MiniskinRun(contentPath, modulesPath); err != nil {
+    log.Fatal(err)
 }
+```
+
+With verbose output:
+
+```go
+if err := miniskin.MiniskinRun(contentPath, modulesPath, miniskin.VerbosityVerbose); err != nil {
+    log.Fatal(err)
+}
+```
+
+Mockup update only (export + refresh imports):
+
+```go
+miniskin.MiniskinMockupUpdate(contentPath, modulesPath)
+```
+
+Generate only (build + codegen, no mockup processing):
+
+```go
+miniskin.MiniskinGenerate(contentPath, modulesPath)
+```
+
+Single-file negative transform (no XML needed):
+
+```go
+result := miniskin.TransformNegative(content)
+```
+
+For more control, use the types separately:
+
+```go
+ms := miniskin.MiniskinNew(contentPath, modulesPath)
+ms.SetVerbosity(miniskin.VerbosityVerbose)
+
+result, err := ms.Run()
+if err != nil {
+    log.Fatal(err) // includes circular dependency errors
+}
+
+cg := miniskin.CodegenNew(contentPath, modulesPath)
+if err := cg.GenerateAll(result); err != nil {
+    log.Fatal(err)
+}
+```
+
+Dependency analysis only:
+
+```go
+ms := miniskin.MiniskinNew(contentPath, modulesPath)
+dm, err := ms.AnalyzeDeps()
+if err != nil {
+    log.Fatal(err)
+}
+fmt.Print(dm.String())
+order, _ := dm.ProcessingOrder()
+for i, src := range order {
+    fmt.Printf("%d. %s\n", i+1, src)
+}
+```
+
+## CLI
+
+```
+miniskin <command> [flags]
+
+Commands:
+  run                    Mockup update + Build + Generate code
+  generate               Build embed assets + Generate Go code
+  generate-claude-skill  Generate Claude Code SKILL.md
+  mockup update          Export mockup pieces + Refresh imports
+  mockup negative        Transform a mockup file into a negative template
+  deps                   Show dependency map and processing order
+
+Flags:
+  -content string        path to content directory (default ".")
+  -modules string        path to modules directory (default ".")
+  -v                     verbose output (dependency analysis, processing order)
+  -vv                    debug output (all internal details)
+  -silent                suppress all output
+
+Mockup negative flags:
+  -src string            source mockup file (required)
+  -dst string            destination negative template file (required)
+
+Generate-claude-skill flags:
+  -dst string            destination path (default: .claude/skills/miniskin/SKILL.md)
+  -force                 overwrite existing destination file
+```
+
+Examples:
+
+```
+miniskin run
+miniskin run -v
+miniskin generate
+miniskin generate-claude-skill
+miniskin generate-claude-skill -dst path/SKILL.md -force
+miniskin mockup update
+miniskin mockup negative -src mockup_login.html -dst login_negative.html
+miniskin deps
 ```
 
 ## File structure example
@@ -223,7 +735,7 @@ func main() {
 ```
 content/
   content.miniskin.xml          # root: globals + bucket-list
-  _skins/
+  _skin/
     default.html                # skin layout
   app/
     _shared/
@@ -233,10 +745,25 @@ content/
       app.css
       app.js
     login_dialog/
-      login.miniskin.xml        # resource-list with src items
+      login.miniskin.xml        # resource-list + mockup-list
+      login_mockup.html         # mockup source (mockup-export inside)
       signin_src.html           # source with front-matter + skin
       signin.html               # generated output (gitignored)
 ```
+
+## Claude Code skill
+
+Generate the [Claude Code](https://claude.com/claude-code) skill file:
+
+```
+miniskin generate-claude-skill
+```
+
+This creates `.claude/skills/miniskin/SKILL.md` with all the information Claude Code needs to assist with miniskin-based projects.
+
+## Background
+
+miniskin originated as a helper for `go generate` in projects that needed fine-grained control over which assets are embedded and how they are registered. It is not a static site generator — it is an asset assembler. It does not replace tools like Hugo or Jekyll; it operates at a different layer, producing Go source files that compile into the binary.
 
 ## License
 
