@@ -1,5 +1,7 @@
 # miniskin
 
+[![Go Reference](https://pkg.go.dev/badge/github.com/ot4go/miniskin.svg)](https://pkg.go.dev/github.com/ot4go/miniskin)
+
 - Miniskin is a build-time template assembler for Go projects.
 - Supports Mockup-Driven Development (MDD): mockup HTML files can serve directly as source files — they render standalone in the browser and are processed at build time, eliminating the need to maintain separate mockup and source files.
 - It processes content files using an explicit asset catalog defined in `*.miniskin.xml` files and generates Go source code with `//go:embed` directives.
@@ -40,14 +42,12 @@ miniskin addresses these problems with an explicit XML catalog that declares exa
 
 Four equivalent syntaxes, resolved at generation time:
 
-| Syntax | Type | Behavior |
-|---|---|---|
-| `<%var%>` | inline | value (uses default escape) |
-| `<%%var%%>` | inline | value (uses default escape) |
-| `<!--%var%-->` | comment | value (browser-invisible) |
-| `<!--%%var%%-->` | comment | value (browser-invisible) |
-
-Comment forms (`<!--%...%-->`, `<!--%%...%%-->`) are HTML comments — invisible in the browser, suitable for mockup HTML files that need to render standalone.
+| Syntax | Behavior |
+|---|---|
+| `<%var%>` | value, escaped per `<escape>` rules |
+| `<%%var%%>` | value, never escaped |
+| `<!--%var%-->` | same as `<%>`, hidden in browser |
+| `<!--%%var%%-->` | same as `<%%>`, hidden in browser |
 
 Double percent tags also support includes: `<%%include:/path/to/file%%>`
 
@@ -243,7 +243,7 @@ The `mockup-export` directive extracts content from a mockup into a separate fil
 <!--%%endif%%-->
 ```
 
-The `if:mockup` guard ensures the block is silently skipped during normal processing (no error). In a browser, the `<!--%%...%%-->` tags are HTML comments, so the CSS renders inline.
+The `if:mockup` guard ensures the block is silently skipped during normal processing (no error). In a browser, the `<!--%%...%%-->` tags are hidden, so the CSS renders inline.
 
 `mockup-import` reads a file and inserts its content inline. It works as a single tag or as a block tag:
 

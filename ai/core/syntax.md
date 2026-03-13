@@ -1,15 +1,13 @@
-## Percent-tag syntaxes (4 equivalent forms)
+## Percent-tag syntaxes (4 forms)
 
-| Syntax | Use case |
+| Syntax | Behavior |
 |---|---|
-| `<%var%>` | Template variables |
-| `<%%var%%>` | Variables, includes, mockup directives |
-| `<!--%var%-->` | Browser-invisible (mockup HTML) |
-| `<!--%%var%%-->` | Browser-invisible (mockup HTML) |
+| `<%var%>` | value, escaped per `<escape>` rules |
+| `<%%var%%>` | value, never escaped |
+| `<!--%var%-->` | same as `<%>`, hidden in browser |
+| `<!--%%var%%-->` | same as `<%%>`, hidden in browser |
 
-All four syntaxes behave the same. Default escape is none. Configure per file extension with `<escape>` in XML.
-
-Comment forms (`<!--%...%-->`, `<!--%%...%%-->`) are HTML comments — invisible in the browser, ideal for MDD mockup files.
+Single-percent tags (`<%`, `<!--%`) apply the default escape configured via `<escape>` in XML. Double-percent tags (`<%%`, `<!--%%`) never escape. Default escape is none unless configured.
 
 ## Directives
 
