@@ -6,11 +6,21 @@ YAML-like block delimited by `---` at the top of source files:
 ---
 skin: default
 title: Sign In
+@minify:1
+@eol:lf
 ---
 <div>content</div>
 ```
 
 `skin` triggers layout application. Other keys become template variables.
+Lines starting with `@` are directives (processed by miniskin, not passed as variables).
+
+### Directives
+
+| Directive | Values | Description |
+|---|---|---|
+| `@minify` | `0` (default), `1` | Level 1: trim lines and remove empty lines |
+| `@eol` | `lf`, `crlf`, `cr` | Convert line endings (default: no conversion) |
 
 ## XML structure
 
@@ -23,7 +33,7 @@ title: Sign In
   </globals>
   <escape ext="*.html,*.html.tmpl" as="html" />
   <escape ext="*.js,*.js.tmpl" as="js" />
-  <bucket-list filename="generated_embed.go" module="content" import="pkg/content">
+  <bucket-list filename="generated_embed.go" module="content" import="pkg/content" project-root="..">
     <bucket src="app" dst="/modules/app/generated_assets.go"
             module-name="app" template="miniskin::mux" />
   </bucket-list>

@@ -1,3 +1,22 @@
+## Path resolution
+
+All paths inside a bucket resolve relative to the bucket's `src` directory (`contentPath + bucket.Src`):
+
+- **Absolute paths** (starting with `/`): relative to bucket `src`
+  - `include:/utils/helper.js` → `bucketSrc/utils/helper.js`
+  - `mockup-export:/login/page.html` → `bucketSrc/login/page.html`
+  - `mockup-import:/shared/header.html` → `bucketSrc/shared/header.html`
+- **Relative paths** (no leading `/`): relative to the current source file's directory
+  - `include:helper.js` → same directory as the file containing the include
+- **`dst`** in `<bucket>`: relative to `project-root` (not bucket src)
+  - `project-root` is set on `<bucket-list>` and is relative to `contentPath`
+  - Example: `project-root=".."` with `dst="/modules/app/gen.go"` → `contentPath/../modules/app/gen.go`
+
+## Validation
+
+- During build embed, all output files are validated to exist on disk before code generation
+- Missing files produce an error with the absolute path
+
 ## Key behaviors
 
 - `mockup-export` inside `if:mockup` is silently skipped in normal mode (no error)

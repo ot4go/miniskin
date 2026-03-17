@@ -32,6 +32,10 @@ const (
 	stCmtClose2             // inside double comment tag, saw %%
 	stCmtClose3             // inside double comment tag, saw %%-
 	stCmtClose4             // inside double comment tag, saw %%--
+	stSCmtD1                // inside single tag, saw %-
+	stSCmtD2                // inside single tag, saw %--
+	stDCmtD1                // inside double tag, saw %%-
+	stDCmtD2                // inside double tag, saw %%--
 )
 
 type blockKind int
@@ -47,7 +51,10 @@ type blockFrame struct {
 	current  bool // cond: current branch emitting
 	filename string           // save: target file
 	saveMode string           // save: "append", "overwrite", or "" (use default)
+	ltrim    bool             // save: dedent content (remove common leading whitespace)
+	rtrim    bool             // save: remove trailing whitespace from lines
 	prevOut  *strings.Builder // save: previous output buffer
+	lineMode bool             // consume full line on close
 }
 
 func shouldEmit(stack []blockFrame) bool {
@@ -57,6 +64,17 @@ func shouldEmit(stack []blockFrame) bool {
 		}
 	}
 	return true
+}
+
+// insideAnyExport reports whether the block stack contains an active mockup-export frame.
+// When true, conditional tags must not be evaluated — content flows through as-is.
+func insideAnyExport(stack []blockFrame) bool {
+	for i := len(stack) - 1; i >= 0; i-- {
+		if stack[i].kind == blockSave && stack[i].filename != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // TransformNegative replaces mockup-export...end blocks with mockup-import tags.
@@ -79,12 +97,12 @@ func transformNegative(content string) string {
 
 	handleTag := func(endPos int) {
 		trimmed := strings.TrimSpace(tag.String())
-		if filename, _, ok := isMockupExport(trimmed); ok {
+		if ef, ok := isMockupExport(trimmed); ok {
 			if depth == 0 {
 				out.WriteString(content[pos:tagStart])
 			}
 			depth++
-			out.WriteString("<!--%%mockup-import:" + filename + "%%-->")
+			out.WriteString("<!--%%mockup-import:" + ef.filename + "%%-->")
 			pos = endPos
 		} else if (trimmed == "end" || trimmed == "end-mockup-export" || trimmed == "end-mockup-import") && depth > 0 {
 			depth--
@@ -131,6 +149,8 @@ func transformNegative(content string) string {
 			case '>':
 				handleTag(i + 1)
 				state = stText
+			case '-':
+				state = stSCmtD1
 			default:
 				tag.WriteByte('%')
 				tag.WriteByte(c)
@@ -161,6 +181,8 @@ func transformNegative(content string) string {
 			case '>':
 				handleTag(i + 1)
 				state = stText
+			case '-':
+				state = stDCmtD1
 			default:
 				tag.WriteByte('%')
 				tag.WriteByte('%')
@@ -207,6 +229,9 @@ func transformNegative(content string) string {
 			}
 		case stCmtSClose1:
 			switch c {
+			case '>':
+				handleTag(i + 1)
+				state = stText
 			case '-':
 				state = stCmtSClose2
 			default:
@@ -251,6 +276,9 @@ func transformNegative(content string) string {
 			}
 		case stCmtClose2:
 			switch c {
+			case '>':
+				handleTag(i + 1)
+				state = stText
 			case '-':
 				state = stCmtClose3
 			default:
@@ -278,6 +306,48 @@ func transformNegative(content string) string {
 				tag.WriteByte(c)
 				state = stCmtTag
 			}
+
+		// <%...%--> (single open, comment close)
+		case stSCmtD1:
+			switch c {
+			case '-':
+				state = stSCmtD2
+			default:
+				tag.WriteString("%-")
+				tag.WriteByte(c)
+				state = stSingle
+			}
+		case stSCmtD2:
+			switch c {
+			case '>':
+				handleTag(i + 1)
+				state = stText
+			default:
+				tag.WriteString("%--")
+				tag.WriteByte(c)
+				state = stSingle
+			}
+
+		// <%%...%%--> (double open, comment close)
+		case stDCmtD1:
+			switch c {
+			case '-':
+				state = stDCmtD2
+			default:
+				tag.WriteString("%%-")
+				tag.WriteByte(c)
+				state = stDouble
+			}
+		case stDCmtD2:
+			switch c {
+			case '>':
+				handleTag(i + 1)
+				state = stText
+			default:
+				tag.WriteString("%%--")
+				tag.WriteByte(c)
+				state = stDouble
+			}
 		}
 	}
 
@@ -296,8 +366,15 @@ func (ms *Miniskin) resolvePercent(content string, vars map[string]string, chain
 	var blockStack []blockFrame
 	state := stText
 	emit := true // cached shouldEmit result
+	ms.consumeUntilNewline = false
 
 	for i := 0; i < len(content); i++ {
+		if ms.consumeUntilNewline {
+			if content[i] == '\n' {
+				ms.consumeUntilNewline = false
+			}
+			continue
+		}
 		c := content[i]
 
 		switch state {
@@ -350,6 +427,8 @@ func (ms *Miniskin) resolvePercent(content string, vars map[string]string, chain
 				}
 				emit = shouldEmit(blockStack)
 				state = stText
+			case '-':
+				state = stSCmtD1
 			default:
 				tag.WriteByte('%')
 				tag.WriteByte(c)
@@ -389,9 +468,63 @@ func (ms *Miniskin) resolvePercent(content string, vars map[string]string, chain
 				}
 				emit = shouldEmit(blockStack)
 				state = stText
+			case '-':
+				state = stDCmtD1
 			default:
 				tag.WriteByte('%')
 				tag.WriteByte('%')
+				tag.WriteByte(c)
+				state = stDouble
+			}
+
+		// <%...%-->  (single open, comment close)
+		case stSCmtD1:
+			switch c {
+			case '-':
+				state = stSCmtD2
+			default:
+				tag.WriteString("%-")
+				tag.WriteByte(c)
+				state = stSingle
+			}
+		case stSCmtD2:
+			switch c {
+			case '>':
+				var err error
+				out, err = ms.dispatchSingleTag(tag.String(), vars, &blockStack, out, emit)
+				if err != nil {
+					return "", err
+				}
+				emit = shouldEmit(blockStack)
+				state = stText
+			default:
+				tag.WriteString("%--")
+				tag.WriteByte(c)
+				state = stSingle
+			}
+
+		// <%%...%%-->  (double open, comment close)
+		case stDCmtD1:
+			switch c {
+			case '-':
+				state = stDCmtD2
+			default:
+				tag.WriteString("%%-")
+				tag.WriteByte(c)
+				state = stDouble
+			}
+		case stDCmtD2:
+			switch c {
+			case '>':
+				var err error
+				out, err = ms.dispatchDoubleTag(tag.String(), vars, chain, &blockStack, out, emit)
+				if err != nil {
+					return "", err
+				}
+				emit = shouldEmit(blockStack)
+				state = stText
+			default:
+				tag.WriteString("%%--")
 				tag.WriteByte(c)
 				state = stDouble
 			}
@@ -453,6 +586,14 @@ func (ms *Miniskin) resolvePercent(content string, vars map[string]string, chain
 
 		case stCmtSClose1:
 			switch c {
+			case '>':
+				var err error
+				out, err = ms.dispatchSingleTag(tag.String(), vars, &blockStack, out, emit)
+				if err != nil {
+					return "", err
+				}
+				emit = shouldEmit(blockStack)
+				state = stText
 			case '-':
 				state = stCmtSClose2
 			default:
@@ -507,6 +648,14 @@ func (ms *Miniskin) resolvePercent(content string, vars map[string]string, chain
 
 		case stCmtClose2:
 			switch c {
+			case '>':
+				var err error
+				out, err = ms.dispatchDoubleTag(tag.String(), vars, chain, &blockStack, out, emit)
+				if err != nil {
+					return "", err
+				}
+				emit = shouldEmit(blockStack)
+				state = stText
 			case '-':
 				state = stCmtClose3
 			default:
@@ -568,11 +717,11 @@ func (ms *Miniskin) resolvePercent(content string, vars map[string]string, chain
 		}
 	case stLTPct:
 		return "", fmt.Errorf("unclosed <%% tag at end of content")
-	case stSingle, stSingleClose:
+	case stSingle, stSingleClose, stSCmtD1, stSCmtD2:
 		return "", fmt.Errorf("unclosed <%% tag: <%s", tag.String())
 	case stLTPctPct:
 		return "", fmt.Errorf("unclosed <%% tag at end of content")
-	case stDouble, stDoubleClose1, stDoubleClose2:
+	case stDouble, stDoubleClose1, stDoubleClose2, stDCmtD1, stDCmtD2:
 		return "", fmt.Errorf("unclosed <%%%% tag: <%%%s", tag.String())
 	case stCmtSingle, stCmtSClose1, stCmtSClose2, stCmtSClose3:
 		return "", fmt.Errorf("unclosed <!--%%%% tag: <!--%%%s", tag.String())
@@ -589,32 +738,55 @@ func (ms *Miniskin) resolvePercent(content string, vars map[string]string, chain
 
 // ---
 
+// exportFlags holds parsed mockup-export options.
+type exportFlags struct {
+	filename string
+	saveMode string // "append", "overwrite", or ""
+	ltrim    bool
+	rtrim    bool
+}
+
 // isMockupExport parses a mockup-export tag.
-// Supports: mockup-export:/path, mockup-export:"/path with spaces", mockup-export:/path append
-func isMockupExport(tagStr string) (filename string, mode string, ok bool) {
+// Supports: mockup-export:/path, mockup-export:"/path with spaces", mockup-export:/path append ltrim
+func isMockupExport(tagStr string) (ef exportFlags, ok bool) {
 	if !strings.HasPrefix(tagStr, "mockup-export:") {
-		return "", "", false
+		return ef, false
 	}
 	rest := strings.TrimSpace(strings.TrimPrefix(tagStr, "mockup-export:"))
 	if rest == "" {
-		return "", "", false
+		return ef, false
 	}
 	if rest[0] == '"' {
 		end := strings.IndexByte(rest[1:], '"')
 		if end < 0 {
-			return rest[1:], "", true // unclosed quote: use the rest as filename
+			ef.filename = rest[1:]
+			return ef, true
 		}
-		filename = rest[1 : end+1]
+		ef.filename = rest[1 : end+1]
 		rest = strings.TrimSpace(rest[end+2:])
 	} else {
 		idx := strings.IndexByte(rest, ' ')
 		if idx < 0 {
-			return rest, "", true
+			ef.filename = rest
+			return ef, true
 		}
-		filename = rest[:idx]
+		ef.filename = rest[:idx]
 		rest = strings.TrimSpace(rest[idx+1:])
 	}
-	return filename, rest, true
+	for _, flag := range strings.Fields(rest) {
+		switch flag {
+		case "append", "overwrite":
+			ef.saveMode = flag
+		case "ltrim":
+			ef.ltrim = true
+		case "rtrim":
+			ef.rtrim = true
+		case "trim":
+			ef.ltrim = true
+			ef.rtrim = true
+		}
+	}
+	return ef, true
 }
 
 func isMockupImport(tagStr string) (filename string, ok bool) {
@@ -635,6 +807,105 @@ func isMockupImport(tagStr string) (filename string, ok bool) {
 	return rest, true
 }
 
+// applyMinify applies minification to content.
+// Level "1": trim lines and remove empty lines.
+func applyMinify(content string, level string) string {
+	if level == "" || level == "0" {
+		return content
+	}
+	// Level 1: alltrim lines + remove empty lines
+	lines := strings.Split(content, "\n")
+	var result []string
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			result = append(result, line)
+		}
+	}
+	return strings.Join(result, "\n") + "\n"
+}
+
+// applyLineEnding converts line endings.
+// "lf" = \n, "crlf" = \r\n, "cr" = \r.
+func applyLineEnding(content string, ending string) string {
+	// Normalize to \n first
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	content = strings.ReplaceAll(content, "\r", "\n")
+	switch strings.ToLower(ending) {
+	case "crlf":
+		content = strings.ReplaceAll(content, "\n", "\r\n")
+	case "cr":
+		content = strings.ReplaceAll(content, "\n", "\r")
+	}
+	return content
+}
+
+// applyTrimFlags applies ltrim/rtrim to exported content.
+// ltrim removes common leading whitespace (dedent).
+// rtrim removes trailing whitespace from each line.
+func applyTrimFlags(content string, ltrim, rtrim bool) string {
+	if !ltrim && !rtrim {
+		return content
+	}
+	lines := strings.Split(content, "\n")
+
+	if ltrim {
+		// Find minimum indentation of non-empty lines
+		minIndent := -1
+		for _, line := range lines {
+			if strings.TrimSpace(line) == "" {
+				continue
+			}
+			indent := len(line) - len(strings.TrimLeft(line, " \t"))
+			if minIndent < 0 || indent < minIndent {
+				minIndent = indent
+			}
+		}
+		if minIndent > 0 {
+			for i, line := range lines {
+				if len(line) >= minIndent {
+					lines[i] = line[minIndent:]
+				}
+			}
+		}
+	}
+
+	if rtrim {
+		for i, line := range lines {
+			lines[i] = strings.TrimRight(line, " \t")
+		}
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// truncateCurrentLine removes everything after the last newline in the buffer.
+func truncateCurrentLine(out *strings.Builder) {
+	s := out.String()
+	lastNL := strings.LastIndexByte(s, '\n')
+	out.Reset()
+	if lastNL >= 0 {
+		out.WriteString(s[:lastNL+1])
+	}
+}
+
+// importFilePath resolves a mockup-import filename.
+// Leading "/" means relative to bucketSrc; otherwise relative to the current file's directory.
+func importFilePath(filename, bucketSrc, fileDir string) string {
+	if strings.HasPrefix(filename, "/") {
+		return filepath.Join(bucketSrc, filepath.FromSlash(strings.TrimPrefix(filename, "/")))
+	}
+	return filepath.Join(fileDir, filepath.FromSlash(filename))
+}
+
+func (ms *Miniskin) resolveImportPath(filename string) string {
+	fileDir := ms.currentFileDir
+	if fileDir == "" {
+		fileDir = ms.bucketSrc
+	}
+	return importFilePath(filename, ms.bucketSrc, fileDir)
+}
+
 func (ms *Miniskin) dispatchSingleTag(rawTag string, vars map[string]string, blockStack *[]blockFrame, out *strings.Builder, emit bool) (*strings.Builder, error) {
 	tagStr := strings.TrimSpace(rawTag)
 	if filename, ok := isMockupImport(tagStr); ok {
@@ -642,31 +913,75 @@ func (ms *Miniskin) dispatchSingleTag(rawTag string, vars map[string]string, blo
 			return nil, fmt.Errorf("mockup-import only works in mockup mode")
 		}
 		if emit {
-			filePath := filepath.Join(ms.contentPath, filepath.FromSlash(filename))
+			if ms.lineMode {
+				truncateCurrentLine(out)
+			}
+			filePath := absPath(ms.resolveImportPath(filename))
 			data, err := os.ReadFile(filePath)
 			if err != nil {
-				return nil, fmt.Errorf("mockup-import %s: %w", filename, err)
+				return nil, fmt.Errorf("mockup-import %s: %w", filePath, err)
 			}
 			out.Write(data)
+			ms.importMarkOut = out
+			ms.importMark = out.Len()
+		}
+		if ms.lineMode {
+			ms.consumeUntilNewline = true
 		}
 		return out, nil
 	}
-	if filename, mode, ok := isMockupExport(tagStr); ok {
+	if ef, ok := isMockupExport(tagStr); ok {
 		if emit && !ms.skipVars {
 			return nil, fmt.Errorf("mockup-export only works in mockup mode")
 		}
 		// If activeExport is set, only process the matching export
-		if ms.activeExport != "" && filename != ms.activeExport {
+		if ms.activeExport != "" && ef.filename != ms.activeExport {
+			if ms.lineMode {
+				truncateCurrentLine(out)
+			}
 			// Push a cond frame to suppress all content inside
-			*blockStack = append(*blockStack, blockFrame{kind: blockCond, anyTaken: true, current: false})
+			*blockStack = append(*blockStack, blockFrame{kind: blockCond, anyTaken: true, current: false, lineMode: ms.lineMode})
+			if ms.lineMode {
+				ms.consumeUntilNewline = true
+			}
 			return out, nil
 		}
-		*blockStack = append(*blockStack, blockFrame{kind: blockSave, filename: filename, saveMode: mode, prevOut: out})
+		if ms.lineMode {
+			truncateCurrentLine(out)
+		}
+		*blockStack = append(*blockStack, blockFrame{kind: blockSave, filename: ef.filename, saveMode: ef.saveMode, ltrim: ef.ltrim, rtrim: ef.rtrim, prevOut: out, lineMode: ms.lineMode})
+		if ms.lineMode {
+			ms.consumeUntilNewline = true
+		}
 		if emit {
 			buf := new(strings.Builder)
 			return buf, nil
 		}
 		return out, nil
+	}
+	// end-mockup-import: close a mockup-import block (truncate inline content)
+	// or fall through to close a mockup-export block (blockSave).
+	if tagStr == "end-mockup-import" {
+		// Import mark active on same buffer → truncate inline content
+		if ms.importMarkOut == out {
+			content := out.String()
+			out.Reset()
+			out.WriteString(content[:ms.importMark])
+			ms.importMarkOut = nil
+			if ms.lineMode {
+				ms.consumeUntilNewline = true
+			}
+			return out, nil
+		}
+		// Close a blockSave (mockup-export closed with end-mockup-import)
+		if len(*blockStack) > 0 && (*blockStack)[len(*blockStack)-1].kind == blockSave {
+			// Fall through to block-close logic
+		} else if !emit {
+			// Inside false conditional: skip silently
+			return out, nil
+		} else {
+			return nil, fmt.Errorf("<%send-mockup-import%%> without matching mockup-import", "%")
+		}
 	}
 	if tagStr == "end" || tagStr == "end-if" || tagStr == "end-mockup-export" || tagStr == "end-mockup-import" {
 		if len(*blockStack) == 0 {
@@ -679,17 +994,28 @@ func (ms *Miniskin) dispatchSingleTag(rawTag string, vars map[string]string, blo
 		if tagStr == "end-mockup-export" && top.kind != blockSave {
 			return nil, fmt.Errorf("<%send-mockup-export%%> but current block is not a mockup-export", "%")
 		}
-		if tagStr == "end-mockup-import" && top.kind != blockSave {
-			return nil, fmt.Errorf("<%send-mockup-import%%> but current block is not a mockup-import", "%")
-		}
 		*blockStack = (*blockStack)[:len(*blockStack)-1]
 		if top.kind == blockSave {
+			if top.lineMode {
+				truncateCurrentLine(out)
+			}
+			// Clear stale import mark if it was on this save buffer
+			if ms.importMarkOut == out {
+				ms.importMarkOut = nil
+			}
 			if top.filename == "" {
 				// Skipped export (activeExport filtering) — just pop
+				if top.lineMode {
+					ms.consumeUntilNewline = true
+				}
 				return top.prevOut, nil
 			}
 			if emit {
-				filePath := filepath.Join(ms.contentPath, filepath.FromSlash(top.filename))
+				exportContent := applyTrimFlags(out.String(), top.ltrim, top.rtrim)
+				filePath := absPath(filepath.Join(ms.bucketSrc, filepath.FromSlash(strings.TrimPrefix(top.filename, "/"))))
+				if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
+					return nil, fmt.Errorf("mockup-export %s: creating directory: %w", filePath, err)
+				}
 				mode := top.saveMode
 				if mode == "" {
 					mode = ms.defaultSaveMode
@@ -697,23 +1023,23 @@ func (ms *Miniskin) dispatchSingleTag(rawTag string, vars map[string]string, blo
 				// First write in this session always truncates
 				firstTime := ms.touchedFiles != nil && !ms.touchedFiles[top.filename]
 				if firstTime {
-					if err := os.WriteFile(filePath, []byte(out.String()), 0644); err != nil {
-						return nil, fmt.Errorf("mockup-export %s: %w", top.filename, err)
+					if err := os.WriteFile(filePath, []byte(exportContent), 0644); err != nil {
+						return nil, fmt.Errorf("mockup-export %s: %w", filePath, err)
 					}
 					ms.touchedFiles[top.filename] = true
 				} else if mode == "append" {
 					f, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 					if err != nil {
-						return nil, fmt.Errorf("mockup-export %s: %w", top.filename, err)
+						return nil, fmt.Errorf("mockup-export %s: %w", filePath, err)
 					}
-					_, err = f.WriteString(out.String())
+					_, err = f.WriteString(exportContent)
 					f.Close()
 					if err != nil {
-						return nil, fmt.Errorf("mockup-export %s: %w", top.filename, err)
+						return nil, fmt.Errorf("mockup-export %s: %w", filePath, err)
 					}
 				} else {
-					if err := os.WriteFile(filePath, []byte(out.String()), 0644); err != nil {
-						return nil, fmt.Errorf("mockup-export %s: %w", top.filename, err)
+					if err := os.WriteFile(filePath, []byte(exportContent), 0644); err != nil {
+						return nil, fmt.Errorf("mockup-export %s: %w", filePath, err)
 					}
 				}
 				ms.generatedFiles = append(ms.generatedFiles, GeneratedFile{
@@ -722,9 +1048,19 @@ func (ms *Miniskin) dispatchSingleTag(rawTag string, vars map[string]string, blo
 				})
 				ms.logf("    mockup-export: %s (from: %s, mode: %s)", top.filename, ms.currentSource, mode)
 			}
+			if top.lineMode {
+				ms.consumeUntilNewline = true
+			}
 			return top.prevOut, nil
 		}
 		// blockCond — just pop (same as endif)
+		if emit && insideAnyExport(*blockStack) {
+			out.WriteString("<%" + tagStr + "%>")
+		}
+		if top.lineMode {
+			truncateCurrentLine(out)
+			ms.consumeUntilNewline = true
+		}
 		return out, nil
 	}
 	if err := ms.handleSingleTag(rawTag, vars, blockStack, out, emit); err != nil {
@@ -738,7 +1074,7 @@ func (ms *Miniskin) dispatchDoubleTag(rawTag string, vars map[string]string, cha
 	if _, ok := isMockupImport(trimmed); ok {
 		return ms.dispatchSingleTag(rawTag, vars, blockStack, out, emit)
 	}
-	if _, _, ok := isMockupExport(trimmed); ok || trimmed == "end" || trimmed == "end-if" || trimmed == "end-mockup-export" || trimmed == "end-mockup-import" {
+	if _, ok := isMockupExport(trimmed); ok || trimmed == "end" || trimmed == "end-if" || trimmed == "end-mockup-export" || trimmed == "end-mockup-import" {
 		return ms.dispatchSingleTag(rawTag, vars, blockStack, out, emit)
 	}
 	if err := ms.handleDoubleTag(rawTag, vars, chain, blockStack, out, emit); err != nil {
@@ -751,8 +1087,11 @@ func (ms *Miniskin) handleSingleTag(rawTag string, vars map[string]string, block
 	tagStr := strings.TrimSpace(rawTag)
 	switch {
 	case strings.HasPrefix(tagStr, "if-not:"):
-		varName := strings.TrimSpace(strings.TrimPrefix(tagStr, "if-not:"))
-		if emit {
+		if emit && insideAnyExport(*blockStack) {
+			out.WriteString("<%" + tagStr + "%>")
+			*blockStack = append(*blockStack, blockFrame{kind: blockCond, anyTaken: true, current: true})
+		} else if emit {
+			varName := strings.TrimSpace(strings.TrimPrefix(tagStr, "if-not:"))
 			val, ok := vars[varName]
 			active := !ok || val == ""
 			*blockStack = append(*blockStack, blockFrame{kind: blockCond, anyTaken: active, current: active})
@@ -761,8 +1100,11 @@ func (ms *Miniskin) handleSingleTag(rawTag string, vars map[string]string, block
 		}
 
 	case strings.HasPrefix(tagStr, "if:"):
-		varName := strings.TrimSpace(strings.TrimPrefix(tagStr, "if:"))
-		if emit {
+		if emit && insideAnyExport(*blockStack) {
+			out.WriteString("<%" + tagStr + "%>")
+			*blockStack = append(*blockStack, blockFrame{kind: blockCond, anyTaken: true, current: true})
+		} else if emit {
+			varName := strings.TrimSpace(strings.TrimPrefix(tagStr, "if:"))
 			val, ok := vars[varName]
 			active := ok && val != ""
 			*blockStack = append(*blockStack, blockFrame{kind: blockCond, anyTaken: active, current: active})
@@ -775,7 +1117,11 @@ func (ms *Miniskin) handleSingleTag(rawTag string, vars map[string]string, block
 		if top == nil {
 			return fmt.Errorf("<%selseif-not:...%%> without matching <%sif:...%%>", "%", "%")
 		}
-		if top.anyTaken {
+		if emit && insideAnyExport(*blockStack) {
+			out.WriteString("<%" + tagStr + "%>")
+			top.current = true
+			top.anyTaken = true
+		} else if top.anyTaken {
 			top.current = false
 		} else {
 			varName := strings.TrimSpace(strings.TrimPrefix(tagStr, "elseif-not:"))
@@ -790,7 +1136,11 @@ func (ms *Miniskin) handleSingleTag(rawTag string, vars map[string]string, block
 		if top == nil {
 			return fmt.Errorf("<%selseif:...%%> without matching <%sif:...%%>", "%", "%")
 		}
-		if top.anyTaken {
+		if emit && insideAnyExport(*blockStack) {
+			out.WriteString("<%" + tagStr + "%>")
+			top.current = true
+			top.anyTaken = true
+		} else if top.anyTaken {
 			top.current = false
 		} else {
 			varName := strings.TrimSpace(strings.TrimPrefix(tagStr, "elseif:"))
@@ -805,7 +1155,11 @@ func (ms *Miniskin) handleSingleTag(rawTag string, vars map[string]string, block
 		if top == nil {
 			return fmt.Errorf("<%selse%%> without matching <%sif:...%%>", "%", "%")
 		}
-		if top.anyTaken {
+		if emit && insideAnyExport(*blockStack) {
+			out.WriteString("<%else%>")
+			top.current = true
+			top.anyTaken = true
+		} else if top.anyTaken {
 			top.current = false
 		} else {
 			top.current = true
@@ -816,6 +1170,9 @@ func (ms *Miniskin) handleSingleTag(rawTag string, vars map[string]string, block
 		top := topCond(*blockStack)
 		if top == nil {
 			return fmt.Errorf("<%sendif%%> without matching <%sif:...%%>", "%", "%")
+		}
+		if emit && insideAnyExport(*blockStack) {
+			out.WriteString("<%endif%>")
 		}
 		*blockStack = (*blockStack)[:len(*blockStack)-1]
 
@@ -973,7 +1330,19 @@ func (ms *Miniskin) resolveDoubleTag(name string, vars map[string]string, chain 
 // ---
 
 func (ms *Miniskin) resolveInclude(includePath string, vars map[string]string, chain []string) (string, error) {
-	fullPath := filepath.Join(ms.contentPath, filepath.FromSlash(includePath))
+	var fullPath string
+	if strings.HasPrefix(includePath, "/") {
+		// Absolute: relative to content path
+		fullPath = filepath.Join(ms.contentPath, filepath.FromSlash(strings.TrimPrefix(includePath, "/")))
+	} else if len(chain) > 0 {
+		// Relative: relative to the directory of the current source file
+		currentDir := filepath.Dir(chain[len(chain)-1])
+		fullPath = filepath.Join(currentDir, filepath.FromSlash(includePath))
+	} else {
+		// Fallback: relative to contentPath
+		fullPath = filepath.Join(ms.contentPath, filepath.FromSlash(includePath))
+	}
+	fullPath, _ = filepath.Abs(fullPath)
 
 	for _, c := range chain {
 		if c == fullPath {
@@ -983,7 +1352,7 @@ func (ms *Miniskin) resolveInclude(includePath string, vars map[string]string, c
 
 	data, err := os.ReadFile(fullPath)
 	if err != nil {
-		return "", fmt.Errorf("include %s: %w", includePath, err)
+		return "", fmt.Errorf("include %s (resolved: %s): %w", includePath, fullPath, err)
 	}
 
 	newChain := append(chain, fullPath)

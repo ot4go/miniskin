@@ -26,6 +26,7 @@ type xmlMiniskin struct {
 type xmlMockupList struct {
 	SkinDir  string          `xml:"skin-dir,attr,omitempty"`
 	SaveMode string          `xml:"save-mode,attr,omitempty"`
+	LineMode string          `xml:"line-mode,attr,omitempty"`
 	Vars     []xmlVar        `xml:"var,omitempty"`
 	Items    []xmlMockupItem `xml:"item,omitempty"`
 }
@@ -48,14 +49,15 @@ type xmlEscape struct {
 }
 
 type xmlBucketList struct {
-	Filename   string      `xml:"filename,attr"`
-	Module     string      `xml:"module,attr"`
-	Import     string      `xml:"import,attr,omitempty"`
-	Template   string      `xml:"template,attr,omitempty"`
-	MuxInclude string      `xml:"mux-include,attr,omitempty"`
-	MuxExclude string      `xml:"mux-exclude,attr,omitempty"`
-	Escapes    []xmlEscape `xml:"escape,omitempty"`
-	Buckets    []xmlBucket `xml:"bucket"`
+	Filename    string      `xml:"filename,attr"`
+	Module      string      `xml:"module,attr"`
+	Import      string      `xml:"import,attr,omitempty"`
+	Template    string      `xml:"template,attr,omitempty"`
+	ProjectRoot string      `xml:"project-root,attr,omitempty"`
+	MuxInclude  string      `xml:"mux-include,attr,omitempty"`
+	MuxExclude  string      `xml:"mux-exclude,attr,omitempty"`
+	Escapes     []xmlEscape `xml:"escape,omitempty"`
+	Buckets     []xmlBucket `xml:"bucket"`
 }
 
 type xmlBucket struct {
@@ -97,11 +99,12 @@ type xmlItem struct {
 
 // BucketList holds the embed generation config from the root miniskin.xml.
 type BucketList struct {
-	Filename string
-	Module   string
-	Import   string
-	Template string // custom template file for embed generation
-	Buckets  []Bucket
+	Filename    string
+	Module      string
+	Import      string
+	Template    string // custom template file for embed generation
+	ProjectRoot string // project root relative to contentPath (for resolving dst)
+	Buckets     []Bucket
 }
 
 // Bucket represents a content bucket.
@@ -244,11 +247,12 @@ func parseBucketList(xbl *xmlBucketList, defaultSkinDir string, parentMuxInclude
 	blEscapes := cascadeEscapeRules(parentEscapeRules, xbl.Escapes)
 
 	bl := BucketList{
-		Filename: xbl.Filename,
-		Module:   xbl.Module,
-		Import:   xbl.Import,
-		Template: xbl.Template,
-		Buckets:  make([]Bucket, len(xbl.Buckets)),
+		Filename:    xbl.Filename,
+		Module:      xbl.Module,
+		Import:      xbl.Import,
+		Template:    xbl.Template,
+		ProjectRoot: xbl.ProjectRoot,
+		Buckets:     make([]Bucket, len(xbl.Buckets)),
 	}
 	for i, b := range xbl.Buckets {
 		skinDir := b.SkinDir

@@ -15,6 +15,7 @@ func newSilent(contentPath, modulesPath string) *Miniskin {
 func newMockup(contentPath, modulesPath string) *Miniskin {
 	ms := newSilent(contentPath, modulesPath)
 	ms.skipVars = true
+	ms.bucketSrc = contentPath
 	ms.touchedFiles = make(map[string]bool)
 	return ms
 }
@@ -550,9 +551,9 @@ func TestElseWithoutIf(t *testing.T) {
 func TestSkinDirDefault(t *testing.T) {
 	dir := t.TempDir()
 
-	// _skin/basic.html (default dir)
-	os.MkdirAll(filepath.Join(dir, "_skin"), 0755)
-	os.WriteFile(filepath.Join(dir, "_skin", "basic.html"), []byte(`[DEFAULT]<%%content%%>[/DEFAULT]`), 0644)
+	// _skin/basic.html relative to bucketSrc (pages)
+	os.MkdirAll(filepath.Join(dir, "pages", "_skin"), 0755)
+	os.WriteFile(filepath.Join(dir, "pages", "_skin", "basic.html"), []byte(`[DEFAULT]<%%content%%>[/DEFAULT]`), 0644)
 
 	// bucket "pages" with a src item that uses skin: basic
 	os.MkdirAll(filepath.Join(dir, "pages"), 0755)
@@ -587,9 +588,9 @@ func TestSkinDirDefault(t *testing.T) {
 func TestSkinDirOnMiniskin(t *testing.T) {
 	dir := t.TempDir()
 
-	// custom skin dir at root level
-	os.MkdirAll(filepath.Join(dir, "layouts"), 0755)
-	os.WriteFile(filepath.Join(dir, "layouts", "main.html"), []byte(`[LAYOUT]<%%content%%>[/LAYOUT]`), 0644)
+	// custom skin dir relative to bucketSrc (pages)
+	os.MkdirAll(filepath.Join(dir, "pages", "layouts"), 0755)
+	os.WriteFile(filepath.Join(dir, "pages", "layouts", "main.html"), []byte(`[LAYOUT]<%%content%%>[/LAYOUT]`), 0644)
 
 	os.MkdirAll(filepath.Join(dir, "pages"), 0755)
 	os.WriteFile(filepath.Join(dir, "pages", "pages.miniskin.xml"), []byte(`<miniskin>
@@ -641,7 +642,7 @@ func TestSkinDirOnBucketOverridesRoot(t *testing.T) {
 
 	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin skin-dir="layouts">
 	<bucket-list filename="embed.go" module="content">
-		<bucket src="app" dst="/gen.go" module-name="app" skin-dir="app/myskins" />
+		<bucket src="app" dst="/gen.go" module-name="app" skin-dir="myskins" />
 	</bucket-list>
 </miniskin>`), 0644)
 
@@ -663,13 +664,13 @@ func TestSkinDirOnBucketOverridesRoot(t *testing.T) {
 func TestSkinDirOnResourceListOverridesBucket(t *testing.T) {
 	dir := t.TempDir()
 
-	// bucket-level skin dir (should be overridden by resource-list)
-	os.MkdirAll(filepath.Join(dir, "bskins"), 0755)
-	os.WriteFile(filepath.Join(dir, "bskins", "base.html"), []byte(`[BUCKET]<%%content%%>[/BUCKET]`), 0644)
+	// bucket-level skin dir relative to bucketSrc (mod)
+	os.MkdirAll(filepath.Join(dir, "mod", "bskins"), 0755)
+	os.WriteFile(filepath.Join(dir, "mod", "bskins", "base.html"), []byte(`[BUCKET]<%%content%%>[/BUCKET]`), 0644)
 
-	// resource-list level skin dir
-	os.MkdirAll(filepath.Join(dir, "rskins"), 0755)
-	os.WriteFile(filepath.Join(dir, "rskins", "base.html"), []byte(`[RESLIST]<%%content%%>[/RESLIST]`), 0644)
+	// resource-list level skin dir relative to bucketSrc (mod)
+	os.MkdirAll(filepath.Join(dir, "mod", "rskins"), 0755)
+	os.WriteFile(filepath.Join(dir, "mod", "rskins", "base.html"), []byte(`[RESLIST]<%%content%%>[/RESLIST]`), 0644)
 
 	os.MkdirAll(filepath.Join(dir, "mod"), 0755)
 	os.WriteFile(filepath.Join(dir, "mod", "mod.miniskin.xml"), []byte(`<miniskin>
@@ -839,9 +840,9 @@ func TestEchoMultiline(t *testing.T) {
 func TestMockup(t *testing.T) {
 	dir := t.TempDir()
 
-	// Skin
-	os.MkdirAll(filepath.Join(dir, "_skin"), 0755)
-	os.WriteFile(filepath.Join(dir, "_skin", "app.html"), []byte(`<!DOCTYPE html>
+	// Skin (relative to bucketSrc=dir/app)
+	os.MkdirAll(filepath.Join(dir, "app", "_skin"), 0755)
+	os.WriteFile(filepath.Join(dir, "app", "_skin", "app.html"), []byte(`<!DOCTYPE html>
 <html>
 <head>
 <title>{{.AppDisplayName}} - <%title%></title>
@@ -954,8 +955,8 @@ policybanner: 1
 func TestMockupNoBanner(t *testing.T) {
 	dir := t.TempDir()
 
-	os.MkdirAll(filepath.Join(dir, "_skin"), 0755)
-	os.WriteFile(filepath.Join(dir, "_skin", "app.html"), []byte(`<html>
+	os.MkdirAll(filepath.Join(dir, "app", "_skin"), 0755)
+	os.WriteFile(filepath.Join(dir, "app", "_skin", "app.html"), []byte(`<html>
 <!--%%if:policybanner%%-->
 <div class="banner">BANNER</div>
 <!--%%endif%%-->
@@ -1004,8 +1005,8 @@ skin: app
 func TestMockupConditional(t *testing.T) {
 	dir := t.TempDir()
 
-	os.MkdirAll(filepath.Join(dir, "_skin"), 0755)
-	os.WriteFile(filepath.Join(dir, "_skin", "app.html"), []byte(`<html>
+	os.MkdirAll(filepath.Join(dir, "app", "_skin"), 0755)
+	os.WriteFile(filepath.Join(dir, "app", "_skin", "app.html"), []byte(`<html>
 <body>
 <%%content%%>
 </body>
@@ -1070,8 +1071,8 @@ skin: app
 func TestMockupConditionalEnabled(t *testing.T) {
 	dir := t.TempDir()
 
-	os.MkdirAll(filepath.Join(dir, "_skin"), 0755)
-	os.WriteFile(filepath.Join(dir, "_skin", "app.html"), []byte(`<html><%%content%%></html>`), 0644)
+	os.MkdirAll(filepath.Join(dir, "app", "_skin"), 0755)
+	os.WriteFile(filepath.Join(dir, "app", "_skin", "app.html"), []byte(`<html><%%content%%></html>`), 0644)
 
 	os.MkdirAll(filepath.Join(dir, "app"), 0755)
 	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
@@ -1413,7 +1414,7 @@ func TestMockupImportQuotedPath(t *testing.T) {
 
 func TestMockupImportSkippedInNormalMode(t *testing.T) {
 	ms := newSilent(t.TempDir(), t.TempDir())
-	result, err := ms.resolvePercent(`before<!--%%if:mockup%%--><!--%%mockup-import:/x.css%%--><!--%%endif%%-->after`, nil, nil)
+	result, err := ms.resolvePercent(`before<!--%%if:mockup%%--><!--%%mockup-import:/x.css%%--><!--%%end-mockup-import%%--><!--%%endif%%-->after`, nil, nil)
 	if err != nil {
 		t.Fatalf("should not error when mockup-import is inside a false block: %v", err)
 	}
@@ -1426,7 +1427,7 @@ func TestMockupImportSkippedInNormalMode(t *testing.T) {
 
 func TestMockupImportOutsideMockupMode(t *testing.T) {
 	ms := newSilent(t.TempDir(), t.TempDir())
-	_, err := ms.resolvePercent(`<!--%%mockup-import:/x.css%%-->`, nil, nil)
+	_, err := ms.resolvePercent(`<!--%%mockup-import:/x.css%%--><!--%%end-mockup-import%%-->`, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for mockup-import outside mockup mode")
 	}
@@ -1458,6 +1459,105 @@ func TestMockupExportThenImport(t *testing.T) {
 	}
 	if result != "[.generated { display: block; }]" {
 		t.Errorf("expected imported content, got %q", result)
+	}
+}
+
+// ---
+
+func TestMockupExportConditionalsPassThrough(t *testing.T) {
+	dir := t.TempDir()
+	ms := newMockup(dir, dir)
+
+	// Conditionals inside a mockup-export must pass through literally — not be evaluated.
+	// if:mockup is true in mockup mode, but inside a mockup-export it should be written as-is.
+	input := `<!--%% mockup-export:/out.txt %%-->` +
+		`<!--%if:mockup%-->MOCKUP<!--%else%>PROD<%endif%-->` +
+		`<!--%% end %%-->`
+
+	_, err := ms.resolvePercent(input, map[string]string{"mockup": "1"}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "out.txt"))
+	if err != nil {
+		t.Fatalf("exported file not created: %v", err)
+	}
+	got := string(data)
+
+	// The exported file should contain the literal conditional tag (normalized to <% form).
+	if !strings.Contains(got, "<%if:mockup%>") {
+		t.Errorf("expected literal if:mockup tag in export, got: %q", got)
+	}
+	if !strings.Contains(got, "MOCKUP") {
+		t.Errorf("expected MOCKUP text preserved in export, got: %q", got)
+	}
+	if !strings.Contains(got, "PROD") {
+		t.Errorf("expected PROD text preserved in export, got: %q", got)
+	}
+	if strings.Contains(got, "MOCKUPPROD") || got == "MOCKUP" || got == "PROD" {
+		t.Errorf("conditional must NOT be evaluated inside export, got: %q", got)
+	}
+}
+
+// ---
+
+func TestMockupExportConditionalsDoubleForm(t *testing.T) {
+	dir := t.TempDir()
+	ms := newMockup(dir, dir)
+
+	// Double-form conditional tags inside mockup-export also pass through literally.
+	input := `<!--%% mockup-export:/out.txt %%-->` +
+		`<!--%% if:mockup %%-->MOCKUP<!--%% else %%-->PROD<!--%% endif %%-->` +
+		`<!--%% end %%-->`
+
+	_, err := ms.resolvePercent(input, map[string]string{"mockup": "1"}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "out.txt"))
+	if err != nil {
+		t.Fatalf("exported file not created: %v", err)
+	}
+	got := string(data)
+
+	if !strings.Contains(got, "<%if:mockup%>") && !strings.Contains(got, "<%%if:mockup%%>") {
+		t.Errorf("expected literal if:mockup tag in export, got: %q", got)
+	}
+	if !strings.Contains(got, "MOCKUP") || !strings.Contains(got, "PROD") {
+		t.Errorf("both branches should be in export, got: %q", got)
+	}
+}
+
+// ---
+
+func TestMockupExportNestedConditionalEnd(t *testing.T) {
+	dir := t.TempDir()
+	ms := newMockup(dir, dir)
+
+	// The "end" tag that closes a conditional inside the export must NOT close the export.
+	// The export is only closed by end-mockup-export or the outer "end" at rawCondDepth==0.
+	input := `A<!--%% mockup-export:/out.txt %%-->` +
+		`<!--%% if:mockup %%-->X<!--%% end %%-->Y` +
+		`<!--%% end-mockup-export %%-->B`
+
+	result, err := ms.resolvePercent(input, map[string]string{"mockup": "1"}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "AB" {
+		t.Errorf("main output should be AB, got: %q", result)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "out.txt"))
+	if err != nil {
+		t.Fatalf("exported file not created: %v", err)
+	}
+	got := string(data)
+	// Export should contain both the conditional and "Y" after the inner end
+	if !strings.Contains(got, "X") || !strings.Contains(got, "Y") {
+		t.Errorf("export should contain X and Y, got: %q", got)
 	}
 }
 
@@ -1703,7 +1803,7 @@ func TestInitNoBucketList(t *testing.T) {
 func TestProcessMockupExportStandalone(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, "app", "pages"), 0755)
-	os.MkdirAll(filepath.Join(dir, "css"), 0755)
+	os.MkdirAll(filepath.Join(dir, "app", "css"), 0755)
 
 	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
 	<bucket-list filename="embed.go" module="content">
@@ -1729,7 +1829,7 @@ func TestProcessMockupExportStandalone(t *testing.T) {
 		t.Fatalf("ProcessMockupExport failed: %v", err)
 	}
 
-	data, err := os.ReadFile(filepath.Join(dir, "css", "exported.css"))
+	data, err := os.ReadFile(filepath.Join(dir, "app", "css", "exported.css"))
 	if err != nil {
 		t.Fatalf("exported file not created: %v", err)
 	}
@@ -1828,7 +1928,9 @@ func TestVariableMergeOrderFullChain(t *testing.T) {
 fmvar: from-fm
 shared: from-fm
 ---
-<!--%%mockup-export:/css/vars.txt%%-->g=<%g%> listvar=<%listvar%> itemvar=<%itemvar%> fmvar=<%fmvar%> shared=<%shared%><!--%%end%%-->`), 0644)
+<!--%%mockup-export:/css/vars.txt%%-->
+g=<%g%> listvar=<%listvar%> itemvar=<%itemvar%> fmvar=<%fmvar%> shared=<%shared%>
+<!--%%end%%-->`), 0644)
 
 	ms := newSilent(dir, dir)
 	_, err := ms.ProcessMockupExport()
@@ -1836,7 +1938,7 @@ shared: from-fm
 		t.Fatalf("ProcessMockupExport failed: %v", err)
 	}
 
-	data, err := os.ReadFile(filepath.Join(dir, "css", "vars.txt"))
+	data, err := os.ReadFile(filepath.Join(dir, "app", "css", "vars.txt"))
 	if err != nil {
 		t.Fatalf("output file not created: %v", err)
 	}
@@ -1914,8 +2016,8 @@ func TestSaveModeCascadeFromList(t *testing.T) {
 	</mockup-list>
 </miniskin>`), 0644)
 
-	os.WriteFile(filepath.Join(dir, "app", "m1.html"), []byte(`<!--%%mockup-export:/out/combined.txt%%-->FIRST<!--%%end%%-->`), 0644)
-	os.WriteFile(filepath.Join(dir, "app", "m2.html"), []byte(`<!--%%mockup-export:/out/combined.txt%%-->SECOND<!--%%end%%-->`), 0644)
+	os.WriteFile(filepath.Join(dir, "app", "m1.html"), []byte("<!--%%mockup-export:/out/combined.txt%%-->\nFIRST\n<!--%%end%%-->"), 0644)
+	os.WriteFile(filepath.Join(dir, "app", "m2.html"), []byte("<!--%%mockup-export:/out/combined.txt%%-->\nSECOND\n<!--%%end%%-->"), 0644)
 
 	ms := newSilent(dir, dir)
 	_, err := ms.ProcessMockupExport()
@@ -1923,11 +2025,11 @@ func TestSaveModeCascadeFromList(t *testing.T) {
 		t.Fatalf("ProcessMockupExport failed: %v", err)
 	}
 
-	data, _ := os.ReadFile(filepath.Join(dir, "out", "combined.txt"))
+	data, _ := os.ReadFile(filepath.Join(dir, "app", "out", "combined.txt"))
 	content := string(data)
 	// First write truncates (session behavior), second appends because list save-mode=append
-	if content != "FIRSTSECOND" {
-		t.Errorf("expected 'FIRSTSECOND' (list save-mode=append), got %q", content)
+	if content != "FIRST\nSECOND\n" {
+		t.Errorf("expected 'FIRST\\nSECOND\\n' (list save-mode=append), got %q", content)
 	}
 }
 
@@ -1951,8 +2053,8 @@ func TestSaveModeCascadeItemOverridesList(t *testing.T) {
 	</mockup-list>
 </miniskin>`), 0644)
 
-	os.WriteFile(filepath.Join(dir, "app", "m1.html"), []byte(`<!--%%mockup-export:/out/file.txt%%-->FIRST<!--%%end%%-->`), 0644)
-	os.WriteFile(filepath.Join(dir, "app", "m2.html"), []byte(`<!--%%mockup-export:/out/file.txt%%-->SECOND<!--%%end%%-->`), 0644)
+	os.WriteFile(filepath.Join(dir, "app", "m1.html"), []byte("<!--%%mockup-export:/out/file.txt%%-->\nFIRST\n<!--%%end%%-->"), 0644)
+	os.WriteFile(filepath.Join(dir, "app", "m2.html"), []byte("<!--%%mockup-export:/out/file.txt%%-->\nSECOND\n<!--%%end%%-->"), 0644)
 
 	ms := newSilent(dir, dir)
 	_, err := ms.ProcessMockupExport()
@@ -1960,11 +2062,11 @@ func TestSaveModeCascadeItemOverridesList(t *testing.T) {
 		t.Fatalf("ProcessMockupExport failed: %v", err)
 	}
 
-	data, _ := os.ReadFile(filepath.Join(dir, "out", "file.txt"))
+	data, _ := os.ReadFile(filepath.Join(dir, "app", "out", "file.txt"))
 	content := string(data)
 	// Item save-mode=overwrite overrides list save-mode=append
-	if content != "SECOND" {
-		t.Errorf("expected 'SECOND' (item overwrite), got %q", content)
+	if content != "SECOND\n" {
+		t.Errorf("expected 'SECOND\\n' (item overwrite), got %q", content)
 	}
 }
 
@@ -1988,7 +2090,7 @@ func TestSaveModeCascadeTagOverridesAll(t *testing.T) {
 	</mockup-list>
 </miniskin>`), 0644)
 
-	os.WriteFile(filepath.Join(dir, "app", "m1.html"), []byte(`<!--%%mockup-export:/out/f.txt%%-->FIRST<!--%%end%%--><!--%%mockup-export:/out/f.txt append%%-->SECOND<!--%%end%%-->`), 0644)
+	os.WriteFile(filepath.Join(dir, "app", "m1.html"), []byte("<!--%%mockup-export:/out/f.txt%%-->\nFIRST\n<!--%%end%%-->\n<!--%%mockup-export:/out/f.txt append%%-->\nSECOND\n<!--%%end%%-->"), 0644)
 
 	ms := newSilent(dir, dir)
 	_, err := ms.ProcessMockupExport()
@@ -1996,11 +2098,11 @@ func TestSaveModeCascadeTagOverridesAll(t *testing.T) {
 		t.Fatalf("ProcessMockupExport failed: %v", err)
 	}
 
-	data, _ := os.ReadFile(filepath.Join(dir, "out", "f.txt"))
+	data, _ := os.ReadFile(filepath.Join(dir, "app", "out", "f.txt"))
 	content := string(data)
 	// First write truncates (session), second uses tag-level append
-	if content != "FIRSTSECOND" {
-		t.Errorf("expected 'FIRSTSECOND' (tag append overrides item/list overwrite), got %q", content)
+	if content != "FIRST\nSECOND\n" {
+		t.Errorf("expected 'FIRST\\nSECOND\\n' (tag append overrides item/list overwrite), got %q", content)
 	}
 }
 
@@ -2049,7 +2151,7 @@ after`), 0644)
 	}
 
 	// Check exported CSS file
-	cssData, _ := os.ReadFile(filepath.Join(dir, "css", "style.css"))
+	cssData, _ := os.ReadFile(filepath.Join(dir, "app", "css", "style.css"))
 	if !strings.Contains(string(cssData), ".body { margin: 0; }") {
 		t.Errorf("exported CSS missing content: %s", cssData)
 	}
@@ -2234,7 +2336,7 @@ func TestLogFileSilentMode(t *testing.T) {
 // --- Front-matter tests
 
 func TestFrontMatterNone(t *testing.T) {
-	vars, body, err := parseFrontMatter("Hello World")
+	vars, _, body, err := parseFrontMatter("Hello World")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2249,7 +2351,7 @@ func TestFrontMatterNone(t *testing.T) {
 // ---
 
 func TestFrontMatterUnclosed(t *testing.T) {
-	_, _, err := parseFrontMatter("---\nkey: value\nno closing")
+	_, _, _, err := parseFrontMatter("---\nkey: value\nno closing")
 	if err == nil {
 		t.Fatal("expected error for unclosed front-matter")
 	}
@@ -2261,7 +2363,7 @@ func TestFrontMatterUnclosed(t *testing.T) {
 // ---
 
 func TestFrontMatterEmptyKey(t *testing.T) {
-	_, _, err := parseFrontMatter("---\n: value\n---\nbody")
+	_, _, _, err := parseFrontMatter("---\n: value\n---\nbody")
 	if err == nil {
 		t.Fatal("expected error for empty key")
 	}
@@ -2273,7 +2375,7 @@ func TestFrontMatterEmptyKey(t *testing.T) {
 // ---
 
 func TestFrontMatterMissingColon(t *testing.T) {
-	_, _, err := parseFrontMatter("---\nnovalue\n---\nbody")
+	_, _, _, err := parseFrontMatter("---\nnovalue\n---\nbody")
 	if err == nil {
 		t.Fatal("expected error for missing colon")
 	}
@@ -2285,7 +2387,7 @@ func TestFrontMatterMissingColon(t *testing.T) {
 // ---
 
 func TestFrontMatterMultipleVars(t *testing.T) {
-	vars, body, err := parseFrontMatter("---\ntitle: Hello\ncolor: red\n---\nBody here")
+	vars, _, body, err := parseFrontMatter("---\ntitle: Hello\ncolor: red\n---\nBody here")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2303,7 +2405,7 @@ func TestFrontMatterMultipleVars(t *testing.T) {
 // ---
 
 func TestFrontMatterEmptyLines(t *testing.T) {
-	vars, body, err := parseFrontMatter("---\ntitle: Hello\n\ncolor: red\n---\nBody")
+	vars, _, body, err := parseFrontMatter("---\ntitle: Hello\n\ncolor: red\n---\nBody")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2564,7 +2666,7 @@ func TestEndMockupImportInRefreshImports(t *testing.T) {
 
 	// Block form with end-mockup-import should be recognized by refreshImports
 	input := "<!--%%mockup-import:/data.css%%-->\n.old { color: red; }\n<!--%%end-mockup-import%%-->"
-	result, err := refreshImports(input, dir)
+	result, err := refreshImports(input, dir, dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2615,15 +2717,295 @@ B
 	}
 }
 
+// --- mockup-import block form with path resolution
+
+func TestMockupImportBlockAbsolutePath(t *testing.T) {
+	// "/" prefix → relative to contentPath
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app", "assets"), 0755)
+	os.WriteFile(filepath.Join(dir, "app", "assets", "app.css"), []byte(".body{margin:0}"), 0644)
+
+	ms := newMockup(dir, dir)
+	ms.currentFileDir = filepath.Join(dir, "app", "mockups")
+
+	input := `<!--%%mockup-import:"/app/assets/app.css"%%-->old<!--%%end-mockup-import%%-->`
+	result, err := ms.resolvePercent(input, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != ".body{margin:0}" {
+		t.Errorf("expected '.body{margin:0}', got %q", result)
+	}
+}
+
+// ---
+
+func TestMockupImportBlockRelativePath(t *testing.T) {
+	// no "/" prefix → relative to current file's directory
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app", "pages"), 0755)
+	os.WriteFile(filepath.Join(dir, "app", "pages", "local.css"), []byte(".local{color:red}"), 0644)
+
+	ms := newMockup(dir, dir)
+	ms.currentFileDir = filepath.Join(dir, "app", "pages")
+
+	input := `<!--%%mockup-import:"local.css"%%-->old<!--%%end-mockup-import%%-->`
+	result, err := ms.resolvePercent(input, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != ".local{color:red}" {
+		t.Errorf("expected '.local{color:red}', got %q", result)
+	}
+}
+
+// ---
+
+func TestMockupImportBlockIfMockupElseEcho(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app", "assets"), 0755)
+	os.WriteFile(filepath.Join(dir, "app", "assets", "app.css"), []byte(".body{margin:0}"), 0644)
+
+	input := "<!--%%if:mockup%%-->\n<style>\n<!--%%mockup-import:\"/app/assets/app.css\"%%-->\n<!--%%end-mockup-import%%-->\n</style>\n<!--%%else%%-->\n<!--%%echo:<link rel=\"stylesheet\" href=\"/assets/app.css\">%%-->\n<!--%%end-if%%-->"
+
+	// Mockup mode
+	ms := newMockup(dir, dir)
+	ms.currentFileDir = filepath.Join(dir, "app", "mockups")
+
+	result, err := ms.resolvePercent(input, map[string]string{"mockup": "1"}, nil)
+	if err != nil {
+		t.Fatalf("mockup mode error: %v", err)
+	}
+	expected := "\n<style>\n.body{margin:0}\n</style>\n"
+	if result != expected {
+		t.Errorf("mockup mode: expected %q, got %q", expected, result)
+	}
+
+	// Normal mode
+	ms2 := newSilent(dir, dir)
+	result2, err := ms2.resolvePercent(input, nil, nil)
+	if err != nil {
+		t.Fatalf("normal mode error: %v", err)
+	}
+	expected2 := "\n<link rel=\"stylesheet\" href=\"/assets/app.css\">\n"
+	if result2 != expected2 {
+		t.Errorf("normal mode: expected %q, got %q", expected2, result2)
+	}
+}
+
+// ---
+
+func TestMockupImportBlockDiscardsInlineContent(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "fresh.css"), []byte("FRESH"), 0644)
+
+	ms := newMockup(dir, dir)
+	input := `<!--%%mockup-import:/fresh.css%%-->STALE CONTENT<!--%%end-mockup-import%%-->`
+	result, err := ms.resolvePercent(input, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "FRESH" {
+		t.Errorf("expected 'FRESH', got %q", result)
+	}
+}
+
+// --- line-mode: mockup-import/export consume full lines (CSS-friendly /* */ wrappers)
+
+func TestLineModeImportCSS(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app", "assets"), 0755)
+	os.WriteFile(filepath.Join(dir, "app", "assets", "app.css"), []byte(".body{margin:0}"), 0644)
+
+	ms := newMockup(dir, dir)
+	ms.lineMode = true
+	input := "<style>\n/*<%%mockup-import:\"/app/assets/app.css\"%%>*/\nold css\n/*<%%end-mockup-import%%>*/\n</style>"
+	result, err := ms.resolvePercent(input, map[string]string{"mockup": "1"}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	expected := "<style>\n.body{margin:0}</style>"
+	if result != expected {
+		t.Errorf("expected %q, got %q", expected, result)
+	}
+}
+
+// ---
+
+func TestLineModeExportCSS(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app", "assets"), 0755)
+
+	ms := newMockup(dir, dir)
+	ms.lineMode = true
+	input := "<style>\n/*<%%mockup-export:\"/app/assets/app.css\"%%>*/\n.body{margin:0}\n/*<%%end-mockup-export%%>*/\n</style>"
+	result, err := ms.resolvePercent(input, map[string]string{"mockup": "1"}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Tags and their /* */ wrappers are consumed; only <style>\n</style> remains
+	expected := "<style>\n</style>"
+	if result != expected {
+		t.Errorf("expected %q, got %q", expected, result)
+	}
+	// Exported file should have the CSS without wrappers
+	data, _ := os.ReadFile(filepath.Join(dir, "app", "assets", "app.css"))
+	if string(data) != ".body{margin:0}\n" {
+		t.Errorf("exported file: expected '.body{margin:0}\\n', got %q", string(data))
+	}
+}
+
+// ---
+
+func TestLineModeImportIfMockup(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app", "assets"), 0755)
+	os.WriteFile(filepath.Join(dir, "app", "assets", "app.css"), []byte(".body{margin:0}"), 0644)
+
+	input := "<!--%%if:mockup%%-->\n<style>\n/*<%%mockup-import:\"/app/assets/app.css\"%%>*/\nold css\n/*<%%end-mockup-import%%>*/\n</style>\n<!--%%else%%-->\n<!--%%echo:<link rel=\"stylesheet\" href=\"/assets/app.css\">%%-->\n<!--%%end-if%%-->"
+
+	// Mockup mode
+	ms := newMockup(dir, dir)
+	ms.lineMode = true
+	result, err := ms.resolvePercent(input, map[string]string{"mockup": "1"}, nil)
+	if err != nil {
+		t.Fatalf("mockup mode error: %v", err)
+	}
+	if !strings.Contains(result, ".body{margin:0}") {
+		t.Errorf("mockup mode: expected CSS content, got %q", result)
+	}
+	if strings.Contains(result, "old css") {
+		t.Errorf("mockup mode: old content should be replaced")
+	}
+
+	// Normal mode
+	ms2 := newSilent(dir, dir)
+	result2, err := ms2.resolvePercent(input, nil, nil)
+	if err != nil {
+		t.Fatalf("normal mode error: %v", err)
+	}
+	if !strings.Contains(result2, `<link rel="stylesheet"`) {
+		t.Errorf("normal mode: expected link tag, got %q", result2)
+	}
+}
+
 // --- Skin with global vars
+
+// --- Mixed open/close syntax: any opening (<%,<%%,<!--%,<!--%%) with any closing (%>,%%>,%-->,%%--->)
+
+func TestMixedSyntaxCommentOpenSingleClose(t *testing.T) {
+	// <!--%...%>
+	ms := newSilent(".", ".")
+	result, err := ms.resolvePercent(`<!--%if:mockup%>hidden<%endif%-->`, map[string]string{}, nil)
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+	if result != "" {
+		t.Errorf("expected empty (mockup not set), got %q", result)
+	}
+}
+
+func TestMixedSyntaxSingleOpenCommentClose(t *testing.T) {
+	// <%...%-->
+	ms := newSilent(".", ".")
+	result, err := ms.resolvePercent(`<%if:mockup%-->hidden<!--%endif%>`, map[string]string{}, nil)
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+	if result != "" {
+		t.Errorf("expected empty (mockup not set), got %q", result)
+	}
+}
+
+func TestMixedSyntaxDoubleCommentOpenDoubleClose(t *testing.T) {
+	// <!--%%...%%>
+	ms := newMockup(".", ".")
+	result, err := ms.resolvePercent(`<!--%%if:mockup%%>MOCK<!--%%end-if%%>`, map[string]string{"mockup": "1"}, nil)
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+	if result != "MOCK" {
+		t.Errorf("expected 'MOCK', got %q", result)
+	}
+}
+
+func TestMixedSyntaxDoubleOpenCommentClose(t *testing.T) {
+	// <%%...%%-->
+	ms := newMockup(".", ".")
+	result, err := ms.resolvePercent(`<%%if:mockup%%-->MOCK<%%end-if%%-->`, map[string]string{"mockup": "1"}, nil)
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+	if result != "MOCK" {
+		t.Errorf("expected 'MOCK', got %q", result)
+	}
+}
+
+func TestMixedSyntaxIfElseEndif(t *testing.T) {
+	// Browser-friendly: <!--%if%-->mockup<!--%else%>production<%endif%-->
+	input := `<span><!--%if:mockup%-->MD Clock<!--%else%>{{.AppDisplayName}}<%endif%--></span>`
+
+	// Mockup mode
+	ms := newMockup(".", ".")
+	result, err := ms.resolvePercent(input, map[string]string{"mockup": "1"}, nil)
+	if err != nil {
+		t.Fatalf("mockup error: %v", err)
+	}
+	if result != "<span>MD Clock</span>" {
+		t.Errorf("mockup: got %q", result)
+	}
+
+	// Normal mode
+	ms2 := newSilent(".", ".")
+	result2, err := ms2.resolvePercent(input, nil, nil)
+	if err != nil {
+		t.Fatalf("normal error: %v", err)
+	}
+	if result2 != "<span>{{.AppDisplayName}}</span>" {
+		t.Errorf("normal: got %q", result2)
+	}
+}
+
+func TestMixedSyntaxAllCombinations(t *testing.T) {
+	// The % count must match (single with single, double with double).
+	// The mixing is only about !-- (comment vs non-comment).
+	groups := []struct {
+		opens  []string
+		closes []string
+	}{
+		{[]string{"<%", "<!--%"}, []string{"%>", "%-->"}},
+		{[]string{"<%%", "<!--%%"}, []string{"%%>", "%%-->"}},
+	}
+
+	for _, g := range groups {
+		for _, open := range g.opens {
+			for _, close := range g.closes {
+				tag := open + "if:x" + close
+				endif := open + "end-if" + close
+				input := tag + "YES" + endif
+				ms := newSilent(".", ".")
+				result, err := ms.resolvePercent(input, map[string]string{"x": "1"}, nil)
+				if err != nil {
+					t.Errorf("%s...%s: error: %v", open, close, err)
+					continue
+				}
+				if result != "YES" {
+					t.Errorf("%s...%s: expected 'YES', got %q", open, close, result)
+				}
+			}
+		}
+	}
+}
+
+// ---
 
 func TestSkinWithGlobalVars(t *testing.T) {
 	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "_skin"), 0755)
+	os.MkdirAll(filepath.Join(dir, "app", "_skin"), 0755)
 	os.MkdirAll(filepath.Join(dir, "app"), 0755)
 
-	// Skin uses a global var
-	os.WriteFile(filepath.Join(dir, "_skin", "wrap.html"), []byte(`[<%appName%>]<%%content%%>[/<%appName%>]`), 0644)
+	// Skin uses a global var (relative to bucketSrc=dir/app)
+	os.WriteFile(filepath.Join(dir, "app", "_skin", "wrap.html"), []byte(`[<%appName%>]<%%content%%>[/<%appName%>]`), 0644)
 
 	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
 	<globals>
@@ -2957,7 +3339,7 @@ FOOTER
 	}
 
 	// base.css should exist and have correct content
-	base, err := os.ReadFile(filepath.Join(dir, "css", "base.css"))
+	base, err := os.ReadFile(filepath.Join(dir, "app", "css", "base.css"))
 	if err != nil {
 		t.Fatalf("base.css not created: %v", err)
 	}
@@ -2966,7 +3348,7 @@ FOOTER
 	}
 
 	// combined.css should contain the imported base.css content
-	combined, err := os.ReadFile(filepath.Join(dir, "css", "combined.css"))
+	combined, err := os.ReadFile(filepath.Join(dir, "app", "css", "combined.css"))
 	if err != nil {
 		t.Fatalf("combined.css not created: %v", err)
 	}
@@ -3197,7 +3579,7 @@ func TestRefreshImportsSingleTag(t *testing.T) {
 	input := `before
 <!--%%mockup-import:/a.css%%-->
 after`
-	result, err := refreshImports(input, dir)
+	result, err := refreshImports(input, dir, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3223,7 +3605,7 @@ func TestRefreshImportsBlockTag(t *testing.T) {
 .a { color: red; }
 <!--%%end%%-->
 after`
-	result, err := refreshImports(input, dir)
+	result, err := refreshImports(input, dir, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3250,7 +3632,7 @@ func TestRefreshImportsMultiple(t *testing.T) {
 middle
 <!--%%mockup-import:/b.js%%-->
 end`
-	result, err := refreshImports(input, dir)
+	result, err := refreshImports(input, dir, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3274,15 +3656,109 @@ func TestRefreshImportsIdempotent(t *testing.T) {
 	input := `<!--%%mockup-import:/a.css%%-->
 content
 <!--%%end%%-->`
-	result, err := refreshImports(input, dir)
+	result, err := refreshImports(input, dir, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Run again
-	result2, err := refreshImports(result, dir)
+	result2, err := refreshImports(result, dir, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if result != result2 {
+		t.Errorf("should be idempotent:\n  first:  %q\n  second: %q", result, result2)
+	}
+}
+
+func TestRefreshImportsCSSWrappers(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "app.css"), []byte(".body{margin:0}"), 0644)
+
+	input := "<style>\n/*<%%mockup-import:/app.css%%>*/\nold css\n/*<%%end-mockup-import%%>*/\n</style>"
+	result, err := refreshImports(input, dir, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := "<style>\n/*<%%mockup-import:/app.css%%>*/\n.body{margin:0}\n/*<%%end-mockup-import%%>*/\n</style>"
+	if result != expected {
+		t.Errorf("got:\n%s\nwant:\n%s", result, expected)
+	}
+}
+
+func TestRefreshImportsCSSWrappersIdempotent(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "app.css"), []byte(".body{margin:0}"), 0644)
+
+	input := "<style>\n/*<%%mockup-import:/app.css%%>*/\n.body{margin:0}\n/*<%%end-mockup-import%%>*/\n</style>"
+	result, err := refreshImports(input, dir, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != input {
+		t.Errorf("should be idempotent:\n  got:  %q\n  want: %q", result, input)
+	}
+}
+
+func TestRefreshImportsCRLF(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "a.css"), []byte("NEW"), 0644)
+
+	input := "/*<%%mockup-import:/a.css%%>*/\r\nOLD\r\n/*<%%end-mockup-import%%>*/\r\n"
+	result, err := refreshImports(input, dir, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := "/*<%%mockup-import:/a.css%%>*/\r\nNEW\n/*<%%end-mockup-import%%>*/\r\n"
+	if result != expected {
+		t.Errorf("got %q, want %q", result, expected)
+	}
+}
+
+func TestCleanImportsBlock(t *testing.T) {
+	input := `<html>
+<!--%%mockup-import:/a.css%%-->
+.body { margin: 0; }
+<!--%%end%%-->
+</html>`
+	expected := `<html>
+<!--%%mockup-import:/a.css%%-->
+<!--%%end%%-->
+</html>`
+	result := cleanImports(input)
+	if result != expected {
+		t.Errorf("got:\n%s\nwant:\n%s", result, expected)
+	}
+}
+
+func TestCleanImportsCSSWrappers(t *testing.T) {
+	input := `<style>
+/*<%%mockup-import:"/app/assets/app.css"%%>*/
+.body { margin: 0; }
+/*<%%end-mockup-import%%>*/
+</style>`
+	expected := `<style>
+/*<%%mockup-import:"/app/assets/app.css"%%>*/
+/*<%%end-mockup-import%%>*/
+</style>`
+	result := cleanImports(input)
+	if result != expected {
+		t.Errorf("got:\n%s\nwant:\n%s", result, expected)
+	}
+}
+
+func TestCleanImportsSingleTagUntouched(t *testing.T) {
+	input := `<!--%%mockup-import:/a.css%%-->`
+	result := cleanImports(input)
+	if result != input {
+		t.Errorf("single tag should be untouched, got: %q", result)
+	}
+}
+
+func TestCleanImportsIdempotent(t *testing.T) {
+	input := `<!--%%mockup-import:/a.css%%-->
+<!--%%end%%-->`
+	result := cleanImports(input)
+	result2 := cleanImports(result)
 	if result != result2 {
 		t.Errorf("should be idempotent:\n  first:  %q\n  second: %q", result, result2)
 	}
@@ -4323,9 +4799,9 @@ func TestNestedResourceListWithSrc(t *testing.T) {
 func TestNestedResourceListCascadesSkinDir(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, "app", "sub"), 0755)
-	os.MkdirAll(filepath.Join(dir, "pskins"), 0755)
+	os.MkdirAll(filepath.Join(dir, "app", "pskins"), 0755)
 
-	os.WriteFile(filepath.Join(dir, "pskins", "base.html"), []byte(`[P]<%%content%%>[/P]`), 0644)
+	os.WriteFile(filepath.Join(dir, "app", "pskins", "base.html"), []byte(`[P]<%%content%%>[/P]`), 0644)
 
 	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
 	<bucket-list filename="embed.go" module="content">

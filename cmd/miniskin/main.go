@@ -20,7 +20,7 @@ func main() {
 	// Handle "mockup" subcommands
 	if cmd == "mockup" {
 		if len(os.Args) < 3 {
-			fmt.Fprintf(os.Stderr, "Usage: miniskin mockup <update|negative> [flags]\n")
+			fmt.Fprintf(os.Stderr, "Usage: miniskin mockup <update|clean|negative> [flags]\n")
 			os.Exit(1)
 		}
 		cmd = "mockup " + os.Args[2]
@@ -29,7 +29,7 @@ func main() {
 
 	// Validate command
 	switch cmd {
-	case "run", "generate", "generate-claude-skill", "mockup update", "mockup negative", "deps", "combine", "split":
+	case "run", "generate", "generate-claude-skill", "mockup update", "mockup clean", "mockup negative", "deps", "combine", "split":
 		// valid
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", cmd)
@@ -78,18 +78,25 @@ func main() {
 		err = miniskin.MiniskinGenerate(*contentPath, *modulesPath, verbosity)
 	case "mockup update":
 		err = miniskin.MiniskinMockupUpdate(*contentPath, *modulesPath, verbosity)
+	case "mockup clean":
+		err = miniskin.MiniskinMockupClean(*contentPath, *modulesPath, verbosity)
 	case "mockup negative":
 		if *negativeSrc == "" || *negativeDst == "" {
 			fmt.Fprintf(os.Stderr, "mockup negative requires -src and -dst flags\n")
 			os.Exit(1)
 		}
+		absSrc, _ := filepath.Abs(*negativeSrc)
+		absDst, _ := filepath.Abs(*negativeDst)
 		var data []byte
-		data, err = os.ReadFile(*negativeSrc)
+		data, err = os.ReadFile(absSrc)
 		if err != nil {
 			break
 		}
 		result := miniskin.TransformNegative(string(data))
-		err = os.WriteFile(*negativeDst, []byte(result), 0644)
+		err = os.WriteFile(absDst, []byte(result), 0644)
+		if err == nil {
+			fmt.Printf("negative: %s -> %s\n", *negativeSrc, *negativeDst)
+		}
 	case "generate-claude-skill":
 		if !*skillForce {
 			if _, statErr := os.Stat(*skillDst); statErr == nil {
@@ -160,6 +167,7 @@ func usage() {
 	fmt.Fprintf(os.Stderr, "  generate               Build embed assets + Generate Go code\n")
 	fmt.Fprintf(os.Stderr, "  generate-claude-skill         Generate Claude Code SKILL.md\n")
 	fmt.Fprintf(os.Stderr, "  mockup update          Export mockup pieces + Refresh imports\n")
+	fmt.Fprintf(os.Stderr, "  mockup clean           Empty inline content of mockup-import blocks\n")
 	fmt.Fprintf(os.Stderr, "  mockup negative        Transform a mockup file into a negative template\n")
 	fmt.Fprintf(os.Stderr, "  deps                   Show dependency map and processing order\n")
 	fmt.Fprintf(os.Stderr, "  combine <dir>          Combine subdirectory XMLs into one\n")

@@ -70,7 +70,7 @@ func (ms *Miniskin) AnalyzeDeps() (*DepMap, error) {
 				return nil
 			}
 			for _, mi := range parsed.MockupList.Items {
-				srcPath := filepath.Join(dir, mi.Src)
+				srcPath := absPath(filepath.Join(dir, mi.Src))
 				data, err := os.ReadFile(srcPath)
 				if err != nil {
 					return fmt.Errorf("reading %s: %w", srcPath, err)
@@ -99,8 +99,8 @@ func (ms *Miniskin) AnalyzeDeps() (*DepMap, error) {
 func scanExportsImports(content string) (exports, imports []string) {
 	walkTags(content, func(tag string) {
 		trimmed := strings.TrimSpace(tag)
-		if filename, _, ok := isMockupExport(trimmed); ok {
-			exports = append(exports, filename)
+		if ef, ok := isMockupExport(trimmed); ok {
+			exports = append(exports, ef.filename)
 		}
 		if filename, ok := isMockupImport(trimmed); ok {
 			imports = append(imports, filename)
@@ -152,6 +152,8 @@ func walkTags(content string, fn func(tag string)) {
 			case '>':
 				fn(tag.String())
 				state = stText
+			case '-':
+				state = stSCmtD1
 			default:
 				tag.WriteByte('%')
 				tag.WriteByte(c)
@@ -182,6 +184,8 @@ func walkTags(content string, fn func(tag string)) {
 			case '>':
 				fn(tag.String())
 				state = stText
+			case '-':
+				state = stDCmtD1
 			default:
 				tag.WriteByte('%')
 				tag.WriteByte('%')
@@ -228,6 +232,9 @@ func walkTags(content string, fn func(tag string)) {
 			}
 		case stCmtSClose1:
 			switch c {
+			case '>':
+				fn(tag.String())
+				state = stText
 			case '-':
 				state = stCmtSClose2
 			default:
@@ -272,6 +279,9 @@ func walkTags(content string, fn func(tag string)) {
 			}
 		case stCmtClose2:
 			switch c {
+			case '>':
+				fn(tag.String())
+				state = stText
 			case '-':
 				state = stCmtClose3
 			default:
@@ -298,6 +308,48 @@ func walkTags(content string, fn func(tag string)) {
 				tag.WriteString("%%--")
 				tag.WriteByte(c)
 				state = stCmtTag
+			}
+
+		// <%...%--> (single open, comment close)
+		case stSCmtD1:
+			switch c {
+			case '-':
+				state = stSCmtD2
+			default:
+				tag.WriteString("%-")
+				tag.WriteByte(c)
+				state = stSingle
+			}
+		case stSCmtD2:
+			switch c {
+			case '>':
+				fn(tag.String())
+				state = stText
+			default:
+				tag.WriteString("%--")
+				tag.WriteByte(c)
+				state = stSingle
+			}
+
+		// <%%...%%--> (double open, comment close)
+		case stDCmtD1:
+			switch c {
+			case '-':
+				state = stDCmtD2
+			default:
+				tag.WriteString("%%-")
+				tag.WriteByte(c)
+				state = stDouble
+			}
+		case stDCmtD2:
+			switch c {
+			case '>':
+				fn(tag.String())
+				state = stText
+			default:
+				tag.WriteString("%%--")
+				tag.WriteByte(c)
+				state = stDouble
 			}
 		}
 	}
@@ -414,11 +466,11 @@ func scanExportDeps(content string) map[string][]string {
 
 	walkTags(content, func(tag string) {
 		trimmed := strings.TrimSpace(tag)
-		if filename, _, ok := isMockupExport(trimmed); ok {
-			if _, exists := result[filename]; !exists {
-				result[filename] = nil
+		if ef, ok := isMockupExport(trimmed); ok {
+			if _, exists := result[ef.filename]; !exists {
+				result[ef.filename] = nil
 			}
-			stack = append(stack, frame{isExport: true, path: filename})
+			stack = append(stack, frame{isExport: true, path: ef.filename})
 		} else if strings.HasPrefix(trimmed, "if:") || strings.HasPrefix(trimmed, "if-not:") {
 			stack = append(stack, frame{isExport: false})
 		} else if trimmed == "end" || trimmed == "end-if" || trimmed == "endif" ||

@@ -72,6 +72,15 @@ func MiniskinMockupUpdate(contentPath, modulesPath string, verbosity ...Verbosit
 	return ms.UpdateImports()
 }
 
+// MiniskinMockupClean empties the inline content of mockup-import blocks.
+func MiniskinMockupClean(contentPath, modulesPath string, verbosity ...Verbosity) error {
+	ms := MiniskinNew(contentPath, modulesPath)
+	if len(verbosity) > 0 {
+		ms.SetVerbosity(verbosity[0])
+	}
+	return ms.CleanImports()
+}
+
 // GenerateAll writes the embed file and all bucket files.
 func (cg *Codegen) GenerateAll(result *Result) error {
 	if err := cg.GenerateEmbed(result); err != nil {
@@ -88,7 +97,7 @@ func (cg *Codegen) GenerateAll(result *Result) error {
 // GenerateEmbed writes the embed file (e.g. generated_embed.go) with //go:embed directives.
 // Uses the custom template from bucket-list if set, otherwise the built-in default.
 func (cg *Codegen) GenerateEmbed(result *Result) error {
-	outPath := filepath.Join(cg.contentPath, result.BucketList.Filename)
+	outPath := absPath(filepath.Join(cg.contentPath, result.BucketList.Filename))
 
 	tmplSrc, err := resolveTemplate(result.BucketList.Template, namedEmbedTemplates, defaultEmbedTmpl, cg.contentPath)
 	if err != nil {
@@ -159,7 +168,11 @@ func (cg *Codegen) GenerateBucketFile(result *Result, br BucketResult) error {
 		Items:      br.Items,
 	}
 
-	dstPath := filepath.Join(cg.modulesPath, filepath.FromSlash(br.Bucket.Dst))
+	projectRoot := cg.modulesPath
+	if result.BucketList.ProjectRoot != "" {
+		projectRoot = filepath.Join(cg.contentPath, result.BucketList.ProjectRoot)
+	}
+	dstPath := absPath(filepath.Join(projectRoot, filepath.FromSlash(br.Bucket.Dst)))
 	f, err := os.Create(dstPath)
 	if err != nil {
 		return fmt.Errorf("creating %s: %w", dstPath, err)
@@ -187,7 +200,7 @@ func resolveTemplate(name string, named map[string]string, fallback string, cont
 		}
 		return src, nil
 	}
-	data, err := os.ReadFile(filepath.Join(contentPath, name))
+	data, err := os.ReadFile(absPath(filepath.Join(contentPath, name)))
 	if err != nil {
 		return "", fmt.Errorf("reading template %s: %w", name, err)
 	}

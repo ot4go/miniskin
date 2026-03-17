@@ -44,6 +44,15 @@ import (
 	"strings"
 )
 
+// absPath converts a path to absolute for clearer error messages.
+func absPath(p string) string {
+	a, err := filepath.Abs(p)
+	if err != nil {
+		return p
+	}
+	return a
+}
+
 // GeneratedFile records a file created by mockup-export.
 type GeneratedFile struct {
 	File   string // output path relative to contentPath
@@ -72,7 +81,12 @@ type Miniskin struct {
 	modulesPath     string
 	globals         map[string]string
 	defaultSaveMode string // "overwrite" (default) or "append"
-	currentSource   string
+	currentSource  string
+	currentFileDir string           // directory of the current source file
+	lineMode             bool             // line-consuming mode for mockup import/export tags
+	importMarkOut        *strings.Builder // buffer where import mark was set
+	importMark           int              // position in buffer after imported content
+	consumeUntilNewline  bool             // eat chars until \n (line mode)
 	generatedFiles  []GeneratedFile
 	touchedFiles    map[string]bool // files written in current Run()
 	skipVars        bool            // mockup mode: don't resolve variables
@@ -81,6 +95,7 @@ type Miniskin struct {
 	Verbosity       Verbosity            // log detail level (default: VerbosityNormal)
 	defaultEscapeFn func(string) string  // active default escape for single tags
 	activeExport    string               // when set, only process this export path
+	bucketSrc       string               // bucket src directory (base for absolute mockup-export paths)
 }
 
 // MiniskinNew creates a Miniskin instance.
@@ -223,6 +238,7 @@ func (ms *Miniskin) BuildEmbed() (*Result, error) {
 	ms.logf("=== BuildEmbed ===")
 	idx := 0
 	for _, bucket := range bl.Buckets {
+		ms.bucketSrc = filepath.Join(ms.contentPath, filepath.FromSlash(bucket.Src))
 		items, err := ms.collectItems(bucket)
 		if err != nil {
 			return nil, err
@@ -234,7 +250,7 @@ func (ms *Miniskin) BuildEmbed() (*Result, error) {
 			if items[i].NeedsProcessing() {
 				ms.logf("[%d] %s -> %s (src: %s)", items[i].Index, items[i].Src, items[i].File, items[i].dir)
 				if err := ms.processItem(&items[i]); err != nil {
-					return nil, fmt.Errorf("processing %s: %w", items[i].File, err)
+					return nil, fmt.Errorf("processing %s: %w", absPath(items[i].filePath()), err)
 				}
 			}
 		}
@@ -302,6 +318,7 @@ func (ms *Miniskin) Run() (*Result, error) {
 	ms.logf("=== pass 3: build embed ===")
 	idx := 0
 	for _, bucket := range bl.Buckets {
+		ms.bucketSrc = filepath.Join(ms.contentPath, filepath.FromSlash(bucket.Src))
 		items, err := ms.collectItems(bucket)
 		if err != nil {
 			return nil, err
@@ -313,7 +330,7 @@ func (ms *Miniskin) Run() (*Result, error) {
 			if items[i].NeedsProcessing() {
 				ms.logf("[%d] %s -> %s (src: %s)", items[i].Index, items[i].Src, items[i].File, items[i].dir)
 				if err := ms.processItem(&items[i]); err != nil {
-					return nil, fmt.Errorf("processing %s: %w", items[i].File, err)
+					return nil, fmt.Errorf("processing %s: %w", absPath(items[i].filePath()), err)
 				}
 			}
 		}
@@ -339,7 +356,7 @@ func (ms *Miniskin) analyzeDepsFromBuckets(bl BucketList) (*DepMap, error) {
 				return nil
 			}
 			for _, mi := range parsed.MockupList.Items {
-				srcPath := filepath.Join(dir, mi.Src)
+				srcPath := absPath(filepath.Join(dir, mi.Src))
 				data, err := os.ReadFile(srcPath)
 				if err != nil {
 					return fmt.Errorf("reading %s: %w", srcPath, err)
@@ -368,12 +385,13 @@ func (ms *Miniskin) analyzeDepsFromBuckets(bl BucketList) (*DepMap, error) {
 // updateImportsFromBuckets refreshes import blocks without calling init() again.
 func (ms *Miniskin) updateImportsFromBuckets(bl BucketList) error {
 	for _, bucket := range bl.Buckets {
+		bucketSrc := filepath.Join(ms.contentPath, filepath.FromSlash(bucket.Src))
 		if err := ms.walkBucket(bucket, func(parsed *xmlMiniskin, dir string) error {
 			if parsed.MockupList == nil {
 				return nil
 			}
 			for _, mi := range parsed.MockupList.Items {
-				srcPath := filepath.Join(dir, mi.Src)
+				srcPath := absPath(filepath.Join(dir, mi.Src))
 				data, err := os.ReadFile(srcPath)
 				if err != nil {
 					return fmt.Errorf("reading %s: %w", srcPath, err)
@@ -384,7 +402,7 @@ func (ms *Miniskin) updateImportsFromBuckets(bl BucketList) error {
 					continue
 				}
 
-				updated, err := refreshImports(string(data), ms.contentPath)
+				updated, err := refreshImports(string(data), bucketSrc, filepath.Dir(srcPath))
 				if err != nil {
 					return fmt.Errorf("updating %s: %w", mi.Src, err)
 				}
@@ -407,7 +425,7 @@ func (ms *Miniskin) updateImportsFromBuckets(bl BucketList) error {
 // processItem reads from src, parses front-matter, resolves percent tags,
 // applies skin if declared, and writes the result to file.
 func (ms *Miniskin) processItem(item *Item) error {
-	srcPath := item.srcPath()
+	srcPath := absPath(item.srcPath())
 
 	// Set default escape based on item's escape rules and source file
 	srcFile := item.Src
@@ -424,8 +442,8 @@ func (ms *Miniskin) processItem(item *Item) error {
 
 	content := string(data)
 
-	// Parse front-matter: extracts variables and skin declaration
-	fmVars, body, err := parseFrontMatter(content)
+	// Parse front-matter: extracts variables, directives, and skin declaration
+	fmVars, directives, body, err := parseFrontMatter(content)
 	if err != nil {
 		return fmt.Errorf("front-matter in %s: %w", item.Src, err)
 	}
@@ -441,6 +459,9 @@ func (ms *Miniskin) processItem(item *Item) error {
 
 	// Resolve percent tags in the body
 	ms.currentSource = item.Src
+	ms.importMarkOut = nil
+	ms.importMark = 0
+	ms.consumeUntilNewline = false
 	vars := ms.mergeVars(fmVars)
 	chain := []string{srcPath}
 	body, err = ms.resolvePercent(body, vars, chain)
@@ -456,8 +477,16 @@ func (ms *Miniskin) processItem(item *Item) error {
 		}
 	}
 
+	// Apply directives
+	if level, ok := directives["minify"]; ok {
+		body = applyMinify(body, level)
+	}
+	if ending, ok := directives["eol"]; ok {
+		body = applyLineEnding(body, ending)
+	}
+
 	// Write to the output file
-	outPath := item.filePath()
+	outPath := absPath(item.filePath())
 	if err := os.WriteFile(outPath, []byte(body), 0644); err != nil {
 		return fmt.Errorf("writing %s: %w", outPath, err)
 	}
@@ -468,6 +497,7 @@ func (ms *Miniskin) processItem(item *Item) error {
 // processBucketMockups walks a bucket and processes all mockup-lists.
 // Only mockup-export side effects matter; the output is discarded.
 func (ms *Miniskin) processBucketMockups(bucket Bucket) error {
+	ms.bucketSrc = filepath.Join(ms.contentPath, filepath.FromSlash(bucket.Src))
 	return ms.walkBucket(bucket, func(parsed *xmlMiniskin, dir string) error {
 		if parsed.MockupList != nil {
 			return ms.processMockupList(parsed.MockupList, dir, bucket.skinDir)
@@ -483,18 +513,24 @@ func (ms *Miniskin) processMockupList(ml *xmlMockupList, dir string, defaultSkin
 	if skinDir == "" {
 		skinDir = defaultSkinDir
 	}
+	// Line mode: default ON, explicit "off" disables
+	if ml.LineMode == "off" {
+		ms.lineMode = false
+	} else {
+		ms.lineMode = true
+	}
 	// Cascade save-mode: mockup-list → item → tag
 	listSaveMode := ml.SaveMode
 
 	for _, mi := range ml.Items {
 		ms.logf("  mockup: %s", mi.Src)
-		srcPath := filepath.Join(dir, mi.Src)
+		srcPath := absPath(filepath.Join(dir, mi.Src))
 		data, err := os.ReadFile(srcPath)
 		if err != nil {
 			return fmt.Errorf("mockup reading %s: %w", srcPath, err)
 		}
 
-		fmVars, body, err := parseFrontMatter(string(data))
+		fmVars, _, body, err := parseFrontMatter(string(data))
 		if err != nil {
 			return fmt.Errorf("mockup front-matter in %s: %w", mi.Src, err)
 		}
@@ -530,6 +566,10 @@ func (ms *Miniskin) processMockupList(ml *xmlMockupList, dir string, defaultSkin
 		}
 
 		ms.currentSource = mi.Src
+		ms.currentFileDir = filepath.Dir(srcPath)
+		ms.importMarkOut = nil
+		ms.importMark = 0
+		ms.consumeUntilNewline = false
 
 		// Check for internal export dependencies (export A imports export B in same file)
 		exportDeps := scanExportDeps(body)
@@ -544,7 +584,7 @@ func (ms *Miniskin) processMockupList(ml *xmlMockupList, dir string, defaultSkin
 				ms.skipVars = false
 				ms.activeExport = ""
 				if err != nil {
-					return fmt.Errorf("mockup processing %s (export %s): %w", mi.Src, exportPath, err)
+					return fmt.Errorf("mockup processing %s (export %s): %w", srcPath, exportPath, err)
 				}
 			}
 		} else {
@@ -569,7 +609,7 @@ func (ms *Miniskin) processMockupList(ml *xmlMockupList, dir string, defaultSkin
 		// Generate negative template if requested
 		if mi.Negative != "" && !ms.skipNegatives {
 			negContent := transformNegative(string(data))
-			negPath := filepath.Join(dir, mi.Negative)
+			negPath := absPath(filepath.Join(dir, mi.Negative))
 			if err := os.WriteFile(negPath, []byte(negContent), 0644); err != nil {
 				return fmt.Errorf("writing negative %s: %w", mi.Negative, err)
 			}
@@ -601,13 +641,13 @@ func (ms *Miniskin) ProcessNegatives() (*Result, error) {
 				if mi.Negative == "" {
 					continue
 				}
-				srcPath := filepath.Join(dir, mi.Src)
+				srcPath := absPath(filepath.Join(dir, mi.Src))
 				data, err := os.ReadFile(srcPath)
 				if err != nil {
 					return fmt.Errorf("reading %s: %w", srcPath, err)
 				}
 				negContent := transformNegative(string(data))
-				negPath := filepath.Join(dir, mi.Negative)
+				negPath := absPath(filepath.Join(dir, mi.Negative))
 				if err := os.WriteFile(negPath, []byte(negContent), 0644); err != nil {
 					return fmt.Errorf("writing negative %s: %w", mi.Negative, err)
 				}

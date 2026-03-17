@@ -40,7 +40,8 @@ miniskin.SplitXML("/path/to/app/app.miniskin.xml")
 ## CLI
 
 ```
-miniskin run                                       # full pipeline
+miniskin run                                       # full pipeline (contentPath = ".")
+miniskin run -content content                      # full pipeline with explicit contentPath
 miniskin run -v                                    # verbose
 miniskin generate                                  # build + codegen only
 miniskin generate-claude-skill                     # generate Claude Code SKILL.md

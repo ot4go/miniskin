@@ -17,11 +17,11 @@ Single-percent tags (`<%`, `<!--%`) apply the default escape configured via `<es
 | `elseif:var` / `elseif-not:var` | Chained conditional |
 | `else` | Fallback branch |
 | `endif` / `end-if` / `end` | Close conditional block |
-| `mockup-export:path [append\|overwrite]` | Extract content to file (mockup mode only) |
+| `mockup-export:path [append\|overwrite] [ltrim\|rtrim\|trim]` | Extract content to file (mockup mode only). `ltrim`: dedent, `rtrim`: strip trailing whitespace, `trim`: both |
 | `end-mockup-export` / `end` | Close mockup-export block |
 | `mockup-import:path` | Insert file contents (mockup mode only) |
 | `end-mockup-import` / `end` | Close mockup-import block |
-| `include:path` | Include file (double tags only, resolved recursively) |
+| `include:path` | Include file (double tags only, resolved recursively). Absolute (`/path`) relative to bucket src; relative to current file otherwise |
 | `note:text` | Discarded silently |
 | `echo:text` | Emit text (uses default escape) |
 
