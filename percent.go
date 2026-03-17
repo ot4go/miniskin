@@ -1332,8 +1332,12 @@ func (ms *Miniskin) resolveDoubleTag(name string, vars map[string]string, chain 
 func (ms *Miniskin) resolveInclude(includePath string, vars map[string]string, chain []string) (string, error) {
 	var fullPath string
 	if strings.HasPrefix(includePath, "/") {
-		// Absolute: relative to content path
-		fullPath = filepath.Join(ms.contentPath, filepath.FromSlash(strings.TrimPrefix(includePath, "/")))
+		// Absolute: relative to bucket src (fallback: content path)
+		base := ms.bucketSrc
+		if base == "" {
+			base = ms.contentPath
+		}
+		fullPath = filepath.Join(base, filepath.FromSlash(strings.TrimPrefix(includePath, "/")))
 	} else if len(chain) > 0 {
 		// Relative: relative to the directory of the current source file
 		currentDir := filepath.Dir(chain[len(chain)-1])

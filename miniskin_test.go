@@ -872,9 +872,9 @@ func TestMockup(t *testing.T) {
 </body>
 </html>`), 0644)
 
-	// Include fragment
-	os.MkdirAll(filepath.Join(dir, "_shared"), 0755)
-	os.WriteFile(filepath.Join(dir, "_shared", "clock.html"), []byte(`<div class="clock" id="clock">--:--</div>`), 0644)
+	// Include fragment (relative to bucketSrc=dir/app)
+	os.MkdirAll(filepath.Join(dir, "app", "_shared"), 0755)
+	os.WriteFile(filepath.Join(dir, "app", "_shared", "clock.html"), []byte(`<div class="clock" id="clock">--:--</div>`), 0644)
 
 	// Bucket + resource list
 	os.MkdirAll(filepath.Join(dir, "app", "login"), 0755)
