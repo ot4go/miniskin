@@ -3944,6 +3944,9 @@ func TestMuxExcludeOnBucketList(t *testing.T) {
 		<item type="html-template" file="page.html" />
 	</resource-list>
 </miniskin>`), 0644)
+	os.WriteFile(filepath.Join(dir, "app", "app.css"), nil, 0644)
+	os.WriteFile(filepath.Join(dir, "app", "app.js"), nil, 0644)
+	os.WriteFile(filepath.Join(dir, "app", "page.html"), nil, 0644)
 
 	ms := newSilent(dir, dir)
 	result, err := ms.BuildEmbed()
@@ -3985,6 +3988,9 @@ func TestMuxIncludeOnBucket(t *testing.T) {
 		<item type="html-template" file="page.html" />
 	</resource-list>
 </miniskin>`), 0644)
+	os.WriteFile(filepath.Join(dir, "app", "app.css"), nil, 0644)
+	os.WriteFile(filepath.Join(dir, "app", "fav.ico"), nil, 0644)
+	os.WriteFile(filepath.Join(dir, "app", "page.html"), nil, 0644)
 
 	ms := newSilent(dir, dir)
 	result, err := ms.BuildEmbed()
@@ -4026,6 +4032,8 @@ func TestMuxCascadeMiniskinToBucket(t *testing.T) {
 		<item type="static" file="page.html" />
 	</resource-list>
 </miniskin>`), 0644)
+	os.WriteFile(filepath.Join(dir, "app", "app.css"), nil, 0644)
+	os.WriteFile(filepath.Join(dir, "app", "page.html"), nil, 0644)
 
 	ms := newSilent(dir, dir)
 	result, err := ms.BuildEmbed()
@@ -4067,6 +4075,8 @@ func TestMuxCascadeResourceListOverridesBucket(t *testing.T) {
 		<item type="html-template" file="page.html" />
 	</resource-list>
 </miniskin>`), 0644)
+	os.WriteFile(filepath.Join(dir, "app", "app.css"), nil, 0644)
+	os.WriteFile(filepath.Join(dir, "app", "page.html"), nil, 0644)
 
 	ms := newSilent(dir, dir)
 	result, err := ms.BuildEmbed()
@@ -4103,6 +4113,8 @@ func TestMuxExplicitNomuxPreserved(t *testing.T) {
 		<item type="static" file="app.js" />
 	</resource-list>
 </miniskin>`), 0644)
+	os.WriteFile(filepath.Join(dir, "app", "app.css"), nil, 0644)
+	os.WriteFile(filepath.Join(dir, "app", "app.js"), nil, 0644)
 
 	ms := newSilent(dir, dir)
 	result, err := ms.BuildEmbed()
@@ -4145,6 +4157,9 @@ func TestMuxDefaultIncludeAll(t *testing.T) {
 		<item type="static" file="app.js" />
 	</resource-list>
 </miniskin>`), 0644)
+	os.WriteFile(filepath.Join(dir, "app", "app.css"), nil, 0644)
+	os.WriteFile(filepath.Join(dir, "app", "page.html"), nil, 0644)
+	os.WriteFile(filepath.Join(dir, "app", "app.js"), nil, 0644)
 
 	ms := newSilent(dir, dir)
 	result, err := ms.BuildEmbed()
@@ -4156,6 +4171,37 @@ func TestMuxDefaultIncludeAll(t *testing.T) {
 		if it.HasFlag("nomux") {
 			t.Errorf("%s should NOT have nomux (default includes all)", it.File)
 		}
+	}
+}
+
+// ---
+
+func TestBuildEmbedMissingFileErrors(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app"), 0755)
+
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "app.miniskin.xml"), []byte(`<miniskin>
+	<resource-list urlbase="/assets">
+		<item type="static" file="app.css" />
+		<item type="static" file="missing.js" />
+	</resource-list>
+</miniskin>`), 0644)
+	os.WriteFile(filepath.Join(dir, "app", "app.css"), nil, 0644)
+	// missing.js intentionally not created
+
+	ms := newSilent(dir, dir)
+	_, err := ms.BuildEmbed()
+	if err == nil {
+		t.Fatal("expected error for missing file, got nil")
+	}
+	if !strings.Contains(err.Error(), "missing file") {
+		t.Errorf("expected 'missing file' error, got: %v", err)
 	}
 }
 

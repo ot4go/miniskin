@@ -255,6 +255,13 @@ func (ms *Miniskin) BuildEmbed() (*Result, error) {
 			}
 		}
 
+		for _, item := range items {
+			fp := absPath(item.filePath())
+			if _, err := os.Stat(fp); err != nil {
+				return nil, fmt.Errorf("missing file %s", fp)
+			}
+		}
+
 		ms.computeEmbedPaths(items)
 		result.Buckets = append(result.Buckets, BucketResult{
 			Bucket: bucket,
@@ -332,6 +339,13 @@ func (ms *Miniskin) Run() (*Result, error) {
 				if err := ms.processItem(&items[i]); err != nil {
 					return nil, fmt.Errorf("processing %s: %w", absPath(items[i].filePath()), err)
 				}
+			}
+		}
+
+		for _, item := range items {
+			fp := absPath(item.filePath())
+			if _, err := os.Stat(fp); err != nil {
+				return nil, fmt.Errorf("missing file %s", fp)
 			}
 		}
 
