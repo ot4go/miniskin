@@ -26,7 +26,7 @@ func (ms *Miniskin) UpdateImports() error {
 	ms.logf("=== UpdateImports ===")
 	for _, bucket := range bl.Buckets {
 		bucketSrc := filepath.Join(ms.contentPath, filepath.FromSlash(bucket.Src))
-		if err := ms.walkBucket(bucket, func(parsed *xmlMiniskin, dir string) error {
+		if err := ms.walkBucket(bucket, func(parsed *xmlMiniskin, dir string, _ string) error {
 			if parsed.MockupList == nil {
 				return nil
 			}
@@ -72,7 +72,7 @@ func (ms *Miniskin) CleanImports() error {
 
 	ms.logf("=== CleanImports ===")
 	for _, bucket := range bl.Buckets {
-		if err := ms.walkBucket(bucket, func(parsed *xmlMiniskin, dir string) error {
+		if err := ms.walkBucket(bucket, func(parsed *xmlMiniskin, dir string, _ string) error {
 			if parsed.MockupList == nil {
 				return nil
 			}

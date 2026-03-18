@@ -65,7 +65,7 @@ func (ms *Miniskin) AnalyzeDeps() (*DepMap, error) {
 	dm := &DepMap{}
 
 	for _, bucket := range bl.Buckets {
-		if err := ms.walkBucket(bucket, func(parsed *xmlMiniskin, dir string) error {
+		if err := ms.walkBucket(bucket, func(parsed *xmlMiniskin, dir string, _ string) error {
 			if parsed.MockupList == nil {
 				return nil
 			}

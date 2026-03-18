@@ -258,11 +258,18 @@ func (ms *Miniskin) BuildEmbed() (*Result, error) {
 		for _, item := range items {
 			fp := absPath(item.filePath())
 			if _, err := os.Stat(fp); err != nil {
-				return nil, fmt.Errorf("missing file %s", fp)
+				if item.XMLSrc != "" && item.XMLLine > 0 {
+					return nil, fmt.Errorf("item %q not found at: %s\n\t(declared in %s line %d)", item.File, fp, item.XMLSrc, item.XMLLine)
+				} else if item.XMLSrc != "" {
+					return nil, fmt.Errorf("item %q not found at: %s\n\t(declared in %s)", item.File, fp, item.XMLSrc)
+				}
+				return nil, fmt.Errorf("item %q not found at: %s", item.File, fp)
 			}
 		}
 
-		ms.computeEmbedPaths(items)
+		if err := ms.computeEmbedPaths(items); err != nil {
+			return nil, err
+		}
 		result.Buckets = append(result.Buckets, BucketResult{
 			Bucket: bucket,
 			Items:  items,
@@ -345,11 +352,18 @@ func (ms *Miniskin) Run() (*Result, error) {
 		for _, item := range items {
 			fp := absPath(item.filePath())
 			if _, err := os.Stat(fp); err != nil {
-				return nil, fmt.Errorf("missing file %s", fp)
+				if item.XMLSrc != "" && item.XMLLine > 0 {
+					return nil, fmt.Errorf("item %q not found at: %s\n\t(declared in %s line %d)", item.File, fp, item.XMLSrc, item.XMLLine)
+				} else if item.XMLSrc != "" {
+					return nil, fmt.Errorf("item %q not found at: %s\n\t(declared in %s)", item.File, fp, item.XMLSrc)
+				}
+				return nil, fmt.Errorf("item %q not found at: %s", item.File, fp)
 			}
 		}
 
-		ms.computeEmbedPaths(items)
+		if err := ms.computeEmbedPaths(items); err != nil {
+			return nil, err
+		}
 		result.Buckets = append(result.Buckets, BucketResult{
 			Bucket: bucket,
 			Items:  items,
@@ -365,7 +379,7 @@ func (ms *Miniskin) Run() (*Result, error) {
 func (ms *Miniskin) analyzeDepsFromBuckets(bl BucketList) (*DepMap, error) {
 	dm := &DepMap{}
 	for _, bucket := range bl.Buckets {
-		if err := ms.walkBucket(bucket, func(parsed *xmlMiniskin, dir string) error {
+		if err := ms.walkBucket(bucket, func(parsed *xmlMiniskin, dir string, _ string) error {
 			if parsed.MockupList == nil {
 				return nil
 			}
@@ -400,7 +414,7 @@ func (ms *Miniskin) analyzeDepsFromBuckets(bl BucketList) (*DepMap, error) {
 func (ms *Miniskin) updateImportsFromBuckets(bl BucketList) error {
 	for _, bucket := range bl.Buckets {
 		bucketSrc := resolveSrcPath(bucket.Src, ms.contentPath, ms.contentPath)
-		if err := ms.walkBucket(bucket, func(parsed *xmlMiniskin, dir string) error {
+		if err := ms.walkBucket(bucket, func(parsed *xmlMiniskin, dir string, _ string) error {
 			if parsed.MockupList == nil {
 				return nil
 			}
@@ -512,7 +526,7 @@ func (ms *Miniskin) processItem(item *Item) error {
 // Only mockup-export side effects matter; the output is discarded.
 func (ms *Miniskin) processBucketMockups(bucket Bucket) error {
 	ms.bucketSrc = resolveSrcPath(bucket.Src, ms.contentPath, ms.contentPath)
-	return ms.walkBucket(bucket, func(parsed *xmlMiniskin, dir string) error {
+	return ms.walkBucket(bucket, func(parsed *xmlMiniskin, dir string, _ string) error {
 		if parsed.MockupList != nil {
 			return ms.processMockupList(parsed.MockupList, dir, bucket.skinDir)
 		}
@@ -647,7 +661,7 @@ func (ms *Miniskin) ProcessNegatives() (*Result, error) {
 
 	ms.logf("=== ProcessNegatives ===")
 	for _, bucket := range bl.Buckets {
-		if err := ms.walkBucket(bucket, func(parsed *xmlMiniskin, dir string) error {
+		if err := ms.walkBucket(bucket, func(parsed *xmlMiniskin, dir string, _ string) error {
 			if parsed.MockupList == nil {
 				return nil
 			}
@@ -702,12 +716,16 @@ func (ms *Miniskin) logDebug(format string, args ...any) {
 }
 
 // computeEmbedPaths sets EmbedPath on each item (relative to contentPath).
-func (ms *Miniskin) computeEmbedPaths(items []Item) {
+func (ms *Miniskin) computeEmbedPaths(items []Item) error {
 	for i := range items {
 		full := filepath.Join(items[i].dir, items[i].File)
-		rel, _ := filepath.Rel(ms.contentPath, full)
+		rel, err := filepath.Rel(ms.contentPath, full)
+		if err != nil {
+			return fmt.Errorf("embed path for %q: filepath.Rel(%q, %q): %w", items[i].File, ms.contentPath, full, err)
+		}
 		items[i].EmbedPath = filepath.ToSlash(rel)
 	}
+	return nil
 }
 
 // mergeVars creates a variable map with globals as base, overridden by local vars.

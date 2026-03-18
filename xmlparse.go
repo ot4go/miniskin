@@ -132,11 +132,38 @@ type Item struct {
 	Key       string
 	Index     int    // position in the global embed list
 	EmbedPath string // relative path for go:embed, computed during processing
+	XMLSrc    string // absolute path of the .miniskin.xml that declared this item
+	XMLLine   int    // line number in XMLSrc where this item is declared
 	urlBase     string
 	skinDir     string
 	dir         string
 	escapeRules []xmlEscape // cascaded escape rules
 	escape      string      // item-level escape override
+}
+
+// findItemLine returns the 1-based line number of the first <item ... file="filename" ...> in data.
+func findItemLine(data []byte, filename string) int {
+	needle := []byte(`file="` + filename + `"`)
+	line := 1
+	for i := 0; i < len(data); i++ {
+		if data[i] == '\n' {
+			line++
+			continue
+		}
+		if data[i] == needle[0] && i+len(needle) <= len(data) {
+			match := true
+			for j := 1; j < len(needle); j++ {
+				if data[i+j] != needle[j] {
+					match = false
+					break
+				}
+			}
+			if match {
+				return line
+			}
+		}
+	}
+	return 0
 }
 
 // NeedsProcessing returns true if the item has a src attribute.
@@ -285,7 +312,7 @@ func parseGlobals(vars []xmlVar) map[string]string {
 	return m
 }
 
-func parseResourceList(xrl *xmlResourceList, dir string, defaultSkinDir string, parentMuxInclude, parentMuxExclude string, parentEscapeRules []xmlEscape) []Item {
+func parseResourceList(xrl *xmlResourceList, dir string, xmlFile string, xmlData []byte, defaultSkinDir string, parentMuxInclude, parentMuxExclude string, parentEscapeRules []xmlEscape) []Item {
 	// Resolve dir: if this resource-list has a src, adjust dir
 	if xrl.Src != "" {
 		dir = filepath.Join(dir, xrl.Src)
@@ -318,6 +345,8 @@ func parseResourceList(xrl *xmlResourceList, dir string, defaultSkinDir string, 
 			URL:         xi.URL,
 			AltURL:      xi.AltURL,
 			Key:         xi.Key,
+			XMLSrc:      xmlFile,
+			XMLLine:     findItemLine(xmlData, xi.File),
 			urlBase:     xrl.URLBase,
 			skinDir:     skinDir,
 			dir:         dir,
@@ -328,7 +357,7 @@ func parseResourceList(xrl *xmlResourceList, dir string, defaultSkinDir string, 
 
 	// Recurse into nested resource-lists
 	for i := range xrl.ResourceLists {
-		childItems := parseResourceList(&xrl.ResourceLists[i], dir, skinDir, rlInclude, rlExclude, rlEscapes)
+		childItems := parseResourceList(&xrl.ResourceLists[i], dir, xmlFile, xmlData, skinDir, rlInclude, rlExclude, rlEscapes)
 		items = append(items, childItems...)
 	}
 
@@ -337,7 +366,7 @@ func parseResourceList(xrl *xmlResourceList, dir string, defaultSkinDir string, 
 
 // walkBucket walks a bucket's source directory, finds all *.miniskin.xml files,
 // parses them, and calls fn for each parsed result.
-func (ms *Miniskin) walkBucket(bucket Bucket, fn func(parsed *xmlMiniskin, dir string) error) error {
+func (ms *Miniskin) walkBucket(bucket Bucket, fn func(parsed *xmlMiniskin, dir string, xmlFile string) error) error {
 	srcDir := resolveSrcPath(bucket.Src, ms.contentPath, ms.contentPath)
 
 	// Process inline resource-lists and mockup-lists from the bucket element
@@ -348,13 +377,13 @@ func (ms *Miniskin) walkBucket(bucket Bucket, fn func(parsed *xmlMiniskin, dir s
 		if len(bucket.inlineMockupLists) > 0 {
 			synthetic.MockupList = &bucket.inlineMockupLists[0]
 		}
-		if err := fn(synthetic, srcDir); err != nil {
+		if err := fn(synthetic, srcDir, ""); err != nil {
 			return err
 		}
 		for i := 1; i < len(bucket.inlineMockupLists); i++ {
 			ml := bucket.inlineMockupLists[i]
 			s := &xmlMiniskin{MockupList: &ml}
-			if err := fn(s, srcDir); err != nil {
+			if err := fn(s, srcDir, ""); err != nil {
 				return err
 			}
 		}
@@ -369,7 +398,7 @@ func (ms *Miniskin) walkBucket(bucket Bucket, fn func(parsed *xmlMiniskin, dir s
 			if err != nil {
 				return err
 			}
-			return fn(parsed, filepath.Dir(path))
+			return fn(parsed, filepath.Dir(path), absPath(path))
 		}
 		return nil
 	}
@@ -401,9 +430,13 @@ func (ms *Miniskin) walkBucket(bucket Bucket, fn func(parsed *xmlMiniskin, dir s
 // Mux-include/mux-exclude patterns from the bucket are cascaded to each resource-list.
 func (ms *Miniskin) collectItems(bucket Bucket) ([]Item, error) {
 	var result []Item
-	err := ms.walkBucket(bucket, func(parsed *xmlMiniskin, dir string) error {
+	err := ms.walkBucket(bucket, func(parsed *xmlMiniskin, dir string, xmlFile string) error {
+		var xmlData []byte
+		if xmlFile != "" {
+			xmlData, _ = os.ReadFile(xmlFile)
+		}
 		for i := range parsed.ResourceLists {
-			items := parseResourceList(&parsed.ResourceLists[i], dir, bucket.skinDir, bucket.muxInclude, bucket.muxExclude, bucket.escapeRules)
+			items := parseResourceList(&parsed.ResourceLists[i], dir, xmlFile, xmlData, bucket.skinDir, bucket.muxInclude, bucket.muxExclude, bucket.escapeRules)
 			result = append(result, items...)
 		}
 		return nil
