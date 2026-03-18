@@ -200,9 +200,10 @@ func resolveTemplate(name string, named map[string]string, fallback string, cont
 		}
 		return src, nil
 	}
-	data, err := os.ReadFile(absPath(filepath.Join(contentPath, name)))
+	tmplPath := absPath(filepath.Join(contentPath, name))
+	data, err := os.ReadFile(tmplPath)
 	if err != nil {
-		return "", fmt.Errorf("reading template %s: %w", name, err)
+		return "", fmt.Errorf("reading template %s: %w", tmplPath, err)
 	}
 	return string(data), nil
 }

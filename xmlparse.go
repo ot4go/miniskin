@@ -229,6 +229,7 @@ func hasTypeFlag(typ, flag string) bool {
 // --- Parsing
 
 func parseMiniskinXML(path string) (*xmlMiniskin, error) {
+	path = absPath(path)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("reading %s: %w", path, err)
@@ -337,7 +338,7 @@ func parseResourceList(xrl *xmlResourceList, dir string, defaultSkinDir string, 
 // walkBucket walks a bucket's source directory, finds all *.miniskin.xml files,
 // parses them, and calls fn for each parsed result.
 func (ms *Miniskin) walkBucket(bucket Bucket, fn func(parsed *xmlMiniskin, dir string) error) error {
-	srcDir := filepath.Join(ms.contentPath, bucket.Src)
+	srcDir := resolveSrcPath(bucket.Src, ms.contentPath, ms.contentPath)
 
 	// Process inline resource-lists and mockup-lists from the bucket element
 	if len(bucket.inlineResourceLists) > 0 || len(bucket.inlineMockupLists) > 0 {
@@ -379,7 +380,7 @@ func (ms *Miniskin) walkBucket(bucket Bucket, fn func(parsed *xmlMiniskin, dir s
 
 	entries, err := os.ReadDir(srcDir)
 	if err != nil {
-		return fmt.Errorf("reading %s: %w", srcDir, err)
+		return fmt.Errorf("reading %s: %w", absPath(srcDir), err)
 	}
 	for _, e := range entries {
 		if !e.IsDir() && strings.HasSuffix(e.Name(), ".miniskin.xml") {

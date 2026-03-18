@@ -191,7 +191,7 @@ func refreshImports(content, contentPath, fileDir string) (string, error) {
 		}
 
 		// Read the referenced file
-		filePath := importFilePath(filename, contentPath, fileDir)
+		filePath := absPath(importFilePath(filename, contentPath, fileDir))
 		data, err := os.ReadFile(filePath)
 		if err != nil {
 			return "", fmt.Errorf("refreshing mockup-import %s: %w", filePath, err)

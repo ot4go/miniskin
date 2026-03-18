@@ -151,7 +151,7 @@ func (ms *Miniskin) init() (*xmlMiniskin, BucketList, error) {
 		return nil, BucketList{}, err
 	}
 	if len(rootFiles) == 0 {
-		return nil, BucketList{}, fmt.Errorf("no *.miniskin.xml found in %s", ms.contentPath)
+		return nil, BucketList{}, fmt.Errorf("no *.miniskin.xml found in %s", absPath(ms.contentPath))
 	}
 	if len(rootFiles) > 1 {
 		return nil, BucketList{}, fmt.Errorf("multiple *.miniskin.xml in root: %v", rootFiles)
@@ -162,7 +162,7 @@ func (ms *Miniskin) init() (*xmlMiniskin, BucketList, error) {
 		return nil, BucketList{}, err
 	}
 	if root.BucketList == nil {
-		return nil, BucketList{}, fmt.Errorf("root %s has no bucket-list", rootFiles[0])
+		return nil, BucketList{}, fmt.Errorf("root %s has no bucket-list", absPath(rootFiles[0]))
 	}
 
 	ms.globals = parseGlobals(root.Globals)
@@ -172,7 +172,7 @@ func (ms *Miniskin) init() (*xmlMiniskin, BucketList, error) {
 		logPath := filepath.Join(ms.contentPath, root.Log)
 		f, err := os.Create(logPath)
 		if err != nil {
-			return nil, BucketList{}, fmt.Errorf("opening log %s: %w", root.Log, err)
+			return nil, BucketList{}, fmt.Errorf("opening log %s: %w", absPath(logPath), err)
 		}
 		if ms.Output != nil {
 			ms.Output = io.MultiWriter(ms.Output, f)
@@ -238,7 +238,7 @@ func (ms *Miniskin) BuildEmbed() (*Result, error) {
 	ms.logf("=== BuildEmbed ===")
 	idx := 0
 	for _, bucket := range bl.Buckets {
-		ms.bucketSrc = filepath.Join(ms.contentPath, filepath.FromSlash(bucket.Src))
+		ms.bucketSrc = resolveSrcPath(bucket.Src, ms.contentPath, ms.contentPath)
 		items, err := ms.collectItems(bucket)
 		if err != nil {
 			return nil, err
@@ -325,7 +325,7 @@ func (ms *Miniskin) Run() (*Result, error) {
 	ms.logf("=== pass 3: build embed ===")
 	idx := 0
 	for _, bucket := range bl.Buckets {
-		ms.bucketSrc = filepath.Join(ms.contentPath, filepath.FromSlash(bucket.Src))
+		ms.bucketSrc = resolveSrcPath(bucket.Src, ms.contentPath, ms.contentPath)
 		items, err := ms.collectItems(bucket)
 		if err != nil {
 			return nil, err
@@ -399,7 +399,7 @@ func (ms *Miniskin) analyzeDepsFromBuckets(bl BucketList) (*DepMap, error) {
 // updateImportsFromBuckets refreshes import blocks without calling init() again.
 func (ms *Miniskin) updateImportsFromBuckets(bl BucketList) error {
 	for _, bucket := range bl.Buckets {
-		bucketSrc := filepath.Join(ms.contentPath, filepath.FromSlash(bucket.Src))
+		bucketSrc := resolveSrcPath(bucket.Src, ms.contentPath, ms.contentPath)
 		if err := ms.walkBucket(bucket, func(parsed *xmlMiniskin, dir string) error {
 			if parsed.MockupList == nil {
 				return nil
@@ -511,7 +511,7 @@ func (ms *Miniskin) processItem(item *Item) error {
 // processBucketMockups walks a bucket and processes all mockup-lists.
 // Only mockup-export side effects matter; the output is discarded.
 func (ms *Miniskin) processBucketMockups(bucket Bucket) error {
-	ms.bucketSrc = filepath.Join(ms.contentPath, filepath.FromSlash(bucket.Src))
+	ms.bucketSrc = resolveSrcPath(bucket.Src, ms.contentPath, ms.contentPath)
 	return ms.walkBucket(bucket, func(parsed *xmlMiniskin, dir string) error {
 		if parsed.MockupList != nil {
 			return ms.processMockupList(parsed.MockupList, dir, bucket.skinDir)
@@ -625,7 +625,7 @@ func (ms *Miniskin) processMockupList(ml *xmlMockupList, dir string, defaultSkin
 			negContent := transformNegative(string(data))
 			negPath := absPath(filepath.Join(dir, mi.Negative))
 			if err := os.WriteFile(negPath, []byte(negContent), 0644); err != nil {
-				return fmt.Errorf("writing negative %s: %w", mi.Negative, err)
+				return fmt.Errorf("writing negative %s: %w", negPath, err)
 			}
 			ms.logf("    negative: %s (from: %s)", mi.Negative, mi.Src)
 			ms.generatedFiles = append(ms.generatedFiles, GeneratedFile{

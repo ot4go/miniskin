@@ -889,13 +889,20 @@ func truncateCurrentLine(out *strings.Builder) {
 	}
 }
 
-// importFilePath resolves a mockup-import filename.
-// Leading "/" means relative to bucketSrc; otherwise relative to the current file's directory.
-func importFilePath(filename, bucketSrc, fileDir string) string {
-	if strings.HasPrefix(filename, "/") {
-		return filepath.Join(bucketSrc, filepath.FromSlash(strings.TrimPrefix(filename, "/")))
+// resolveSrcPath resolves a path treating / and \ as equivalent separators.
+// A leading / or \ means relative to bucketSrc.
+// Otherwise relative to currentDir (the file being processed).
+func resolveSrcPath(path, bucketSrc, currentDir string) string {
+	norm := strings.ReplaceAll(path, "\\", "/")
+	if strings.HasPrefix(norm, "/") {
+		return filepath.Join(bucketSrc, filepath.FromSlash(strings.TrimPrefix(norm, "/")))
 	}
-	return filepath.Join(fileDir, filepath.FromSlash(filename))
+	return filepath.Join(currentDir, filepath.FromSlash(norm))
+}
+
+// importFilePath resolves a mockup-import filename.
+func importFilePath(filename, bucketSrc, fileDir string) string {
+	return resolveSrcPath(filename, bucketSrc, fileDir)
 }
 
 func (ms *Miniskin) resolveImportPath(filename string) string {
@@ -1012,7 +1019,7 @@ func (ms *Miniskin) dispatchSingleTag(rawTag string, vars map[string]string, blo
 			}
 			if emit {
 				exportContent := applyTrimFlags(out.String(), top.ltrim, top.rtrim)
-				filePath := absPath(filepath.Join(ms.bucketSrc, filepath.FromSlash(strings.TrimPrefix(top.filename, "/"))))
+				filePath := absPath(resolveSrcPath(top.filename, ms.bucketSrc, ms.bucketSrc))
 				if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
 					return nil, fmt.Errorf("mockup-export %s: creating directory: %w", filePath, err)
 				}
@@ -1330,22 +1337,17 @@ func (ms *Miniskin) resolveDoubleTag(name string, vars map[string]string, chain 
 // ---
 
 func (ms *Miniskin) resolveInclude(includePath string, vars map[string]string, chain []string) (string, error) {
-	var fullPath string
-	if strings.HasPrefix(includePath, "/") {
-		// Absolute: relative to bucket src (fallback: content path)
-		base := ms.bucketSrc
-		if base == "" {
-			base = ms.contentPath
-		}
-		fullPath = filepath.Join(base, filepath.FromSlash(strings.TrimPrefix(includePath, "/")))
-	} else if len(chain) > 0 {
-		// Relative: relative to the directory of the current source file
-		currentDir := filepath.Dir(chain[len(chain)-1])
-		fullPath = filepath.Join(currentDir, filepath.FromSlash(includePath))
-	} else {
-		// Fallback: relative to contentPath
-		fullPath = filepath.Join(ms.contentPath, filepath.FromSlash(includePath))
+	bucketSrc := ms.bucketSrc
+	if bucketSrc == "" {
+		bucketSrc = ms.contentPath
 	}
+	var currentDir string
+	if len(chain) > 0 {
+		currentDir = filepath.Dir(chain[len(chain)-1])
+	} else {
+		currentDir = bucketSrc
+	}
+	fullPath := resolveSrcPath(includePath, bucketSrc, currentDir)
 	fullPath, _ = filepath.Abs(fullPath)
 
 	for _, c := range chain {
@@ -1362,7 +1364,7 @@ func (ms *Miniskin) resolveInclude(includePath string, vars map[string]string, c
 	newChain := append(chain, fullPath)
 	resolved, err := ms.resolvePercent(string(data), vars, newChain)
 	if err != nil {
-		return "", fmt.Errorf("in include %s: %w", includePath, err)
+		return "", fmt.Errorf("in include %s: %w", fullPath, err)
 	}
 
 	return resolved, nil
