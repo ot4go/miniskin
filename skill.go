@@ -52,3 +52,18 @@ func GenerateSkill() (string, error) {
 	}
 	return buf.String(), nil
 }
+
+// GenerateAgentDocs produces an agent-agnostic Markdown document concatenating
+// the embedded ai/core sources without any tool-specific frontmatter. Suitable
+// for AGENTS.md, .cursor/rules, CONVENTIONS.md, or any LLM context input.
+func GenerateAgentDocs() string {
+	parts := []string{
+		"# miniskin",
+		strings.TrimRight(skillOverview, "\n"),
+		strings.TrimRight(skillSyntax, "\n"),
+		strings.TrimRight(skillPipeline, "\n"),
+		strings.TrimRight(skillExamples, "\n"),
+		strings.TrimRight(skillRules, "\n"),
+	}
+	return strings.Join(parts, "\n\n") + "\n"
+}

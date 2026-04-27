@@ -2889,6 +2889,26 @@ func TestLineModeImportIfMockup(t *testing.T) {
 	}
 }
 
+// --- line-mode + include (non-mockup): consumes the whole line containing the include tag
+
+func TestLineModeIncludeCSS(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "fragment.css"), []byte(".body{margin:0}"), 0644)
+
+	ms := newSilent(dir, dir)
+	ms.bucketSrc = dir
+	ms.lineMode = true
+	input := "<style>\n/* <%%include:fragment.css%%> */\n</style>"
+	result, err := ms.resolvePercent(input, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	expected := "<style>\n.body{margin:0}</style>"
+	if result != expected {
+		t.Errorf("expected %q, got %q", expected, result)
+	}
+}
+
 // --- mockup-import indent
 
 func TestImportIndentSpaces(t *testing.T) {

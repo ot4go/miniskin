@@ -24,6 +24,9 @@ cg.GenerateAll(result)
 // Mockup update only (export + refresh imports)
 miniskin.MiniskinMockupUpdate(contentPath, modulesPath)
 
+// Mockup clean (empty inlined content of mockup-import blocks)
+miniskin.MiniskinMockupClean(contentPath, modulesPath)
+
 // Generate only (build + codegen, no mockups)
 miniskin.MiniskinGenerate(contentPath, modulesPath)
 
@@ -35,6 +38,19 @@ miniskin.CombineDir("/path/to/app")
 
 // Split nested resource-lists back into separate XMLs
 miniskin.SplitXML("/path/to/app/app.miniskin.xml")
+
+// Generate Claude Code skill (returns content)
+content, _ := miniskin.GenerateSkill()
+
+// Generate agent-agnostic AGENTS.md content
+content := miniskin.GenerateAgentDocs()
+```
+
+## Install
+
+```
+go install github.com/ot4go/miniskin/cmd/miniskin@latest    # CLI binary
+go get github.com/ot4go/miniskin                            # library (go:generate / programmatic)
 ```
 
 ## CLI
@@ -45,7 +61,9 @@ miniskin run -content content                      # full pipeline with explicit
 miniskin run -v                                    # verbose
 miniskin generate                                  # build + codegen only
 miniskin generate-claude-skill                     # generate Claude Code SKILL.md
+miniskin generate-agent-docs                       # generate AGENTS.md (Cursor, Aider, Windsurf, etc.)
 miniskin mockup update                             # export + refresh imports
+miniskin mockup clean                              # empty inlined content of import blocks
 miniskin mockup negative -src m.html -dst n.html   # single file negative
 miniskin deps                                      # show dependency map
 miniskin combine content/app                       # combine XMLs into one

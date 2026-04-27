@@ -29,7 +29,7 @@ func main() {
 
 	// Validate command
 	switch cmd {
-	case "run", "generate", "generate-claude-skill", "mockup update", "mockup clean", "mockup negative", "deps", "combine", "split":
+	case "run", "generate", "generate-claude-skill", "generate-agent-docs", "mockup update", "mockup clean", "mockup negative", "deps", "combine", "split":
 		// valid
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", cmd)
@@ -57,6 +57,14 @@ func main() {
 	if cmd == "generate-claude-skill" {
 		skillDst = fs.String("dst", ".claude/skills/miniskin/SKILL.md", "destination path")
 		skillForce = fs.Bool("force", false, "overwrite existing destination file")
+	}
+
+	// Flags exclusive to generate-agent-docs
+	var agentDst *string
+	var agentForce *bool
+	if cmd == "generate-agent-docs" {
+		agentDst = fs.String("dst", "AGENTS.md", "destination path")
+		agentForce = fs.Bool("force", false, "overwrite existing destination file")
 	}
 
 	fs.Parse(os.Args[argsOffset:])
@@ -117,6 +125,24 @@ func main() {
 		if err == nil {
 			fmt.Printf("skill generated: %s\n", *skillDst)
 		}
+	case "generate-agent-docs":
+		if !*agentForce {
+			if _, statErr := os.Stat(*agentDst); statErr == nil {
+				fmt.Fprintf(os.Stderr, "destination %s already exists (use -force to overwrite)\n", *agentDst)
+				os.Exit(1)
+			}
+		}
+		content := miniskin.GenerateAgentDocs()
+		if dir := filepath.Dir(*agentDst); dir != "" && dir != "." {
+			if mkErr := os.MkdirAll(dir, 0755); mkErr != nil {
+				err = mkErr
+				break
+			}
+		}
+		err = os.WriteFile(*agentDst, []byte(content), 0644)
+		if err == nil {
+			fmt.Printf("agent docs generated: %s\n", *agentDst)
+		}
 	case "deps":
 		ms := miniskin.MiniskinNew(*contentPath, *modulesPath).SetVerbosity(verbosity)
 		var dm *miniskin.DepMap
@@ -165,7 +191,8 @@ func usage() {
 	fmt.Fprintf(os.Stderr, "Usage: miniskin <command> [flags]\n\nCommands:\n")
 	fmt.Fprintf(os.Stderr, "  run                    Mockup update + Build + Generate code\n")
 	fmt.Fprintf(os.Stderr, "  generate               Build embed assets + Generate Go code\n")
-	fmt.Fprintf(os.Stderr, "  generate-claude-skill         Generate Claude Code SKILL.md\n")
+	fmt.Fprintf(os.Stderr, "  generate-claude-skill  Generate Claude Code SKILL.md\n")
+	fmt.Fprintf(os.Stderr, "  generate-agent-docs    Generate agent-agnostic AGENTS.md (Cursor, Aider, etc.)\n")
 	fmt.Fprintf(os.Stderr, "  mockup update          Export mockup pieces + Refresh imports\n")
 	fmt.Fprintf(os.Stderr, "  mockup clean           Empty inline content of mockup-import blocks\n")
 	fmt.Fprintf(os.Stderr, "  mockup negative        Transform a mockup file into a negative template\n")
@@ -181,8 +208,11 @@ func usage() {
 	fmt.Fprintf(os.Stderr, "\nMockup negative flags:\n")
 	fmt.Fprintf(os.Stderr, "  -src string            source mockup file (required)\n")
 	fmt.Fprintf(os.Stderr, "  -dst string            destination negative template file (required)\n")
-	fmt.Fprintf(os.Stderr, "\nGenerate-skill flags:\n")
+	fmt.Fprintf(os.Stderr, "\nGenerate-claude-skill flags:\n")
 	fmt.Fprintf(os.Stderr, "  -dst string            destination path (default: .claude/skills/miniskin/SKILL.md)\n")
+	fmt.Fprintf(os.Stderr, "  -force                 overwrite existing destination file\n")
+	fmt.Fprintf(os.Stderr, "\nGenerate-agent-docs flags:\n")
+	fmt.Fprintf(os.Stderr, "  -dst string            destination path (default: AGENTS.md)\n")
 	fmt.Fprintf(os.Stderr, "  -force                 overwrite existing destination file\n")
 	os.Exit(1)
 }

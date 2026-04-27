@@ -17,6 +17,14 @@ miniskin performs no input sanitization, no escaping of user-supplied data, and 
 
 ## Install
 
+CLI (recommended — primary entry point):
+
+```
+go install github.com/ot4go/miniskin/cmd/miniskin@latest
+```
+
+Library (for use with `go:generate` or programmatic invocation):
+
 ```
 go get github.com/ot4go/miniskin
 ```
@@ -828,17 +836,30 @@ content/
 
 ## AI assistance
 
-The `ai/core/` directory contains miniskin's documentation in modular files (overview, syntax, pipeline, rules, examples). These files can be used as context by any AI tool.
+The `ai/core/` directory contains miniskin's documentation in modular files (`overview.md`, `syntax.md`, `pipeline.md`, `examples.md`, `rules.md`). These are the canonical source — both generators below produce their output from them.
 
 ### Claude Code
-
-Generate the skill file:
 
 ```
 miniskin generate-claude-skill
 ```
 
-This creates `.claude/skills/miniskin/SKILL.md` from the `ai/core/` sources.
+Creates `.claude/skills/miniskin/SKILL.md` (adds the Claude skill frontmatter and concatenates `ai/core/` sources). Override destination with `-dst path/SKILL.md`, overwrite with `-force`.
+
+### Other agents (Cursor, Aider, Windsurf, AGENTS.md, …)
+
+```
+miniskin generate-agent-docs
+```
+
+Creates `AGENTS.md` in the current directory — a plain Markdown concatenation of the same sources, without any tool-specific frontmatter. Point it elsewhere with `-dst`:
+
+```
+miniskin generate-agent-docs -dst .cursor/rules/miniskin.mdc -force
+miniskin generate-agent-docs -dst CONVENTIONS.md -force
+```
+
+Suitable for any tool that accepts plain Markdown context.
 
 ## Background
 
