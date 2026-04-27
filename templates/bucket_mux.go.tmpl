@@ -106,7 +106,11 @@ func init() {
 	parsedTemplates = make(map[string]*template.Template)
 {{- range .Items}}
 {{- if hasFlag . "parse"}}
+{{- if .TemplateFunctionMap}}
+	parsedTemplates["{{.RouteURL}}"] = template.Must(template.New("{{.RouteURL}}").Funcs({{.TemplateFunctionMap}}).Parse(string({{embedPkg}}.{{embedVar .}})))
+{{- else}}
 	parsedTemplates["{{.RouteURL}}"] = template.Must(template.New("{{.RouteURL}}").Parse(string({{embedPkg}}.{{embedVar .}})))
+{{- end}}
 {{- end}}
 {{- end}}
 }

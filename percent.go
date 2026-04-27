@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -789,22 +790,48 @@ func isMockupExport(tagStr string) (ef exportFlags, ok bool) {
 	return ef, true
 }
 
-func isMockupImport(tagStr string) (filename string, ok bool) {
+// importFlags holds parsed mockup-import options.
+type importFlags struct {
+	filename string
+	indent   string // "" = none, "auto" = detect from line, "N" = N spaces, "Ntab" = N tabs
+}
+
+func isMockupImport(tagStr string) (imf importFlags, ok bool) {
 	if !strings.HasPrefix(tagStr, "mockup-import:") {
-		return "", false
+		return imf, false
 	}
 	rest := strings.TrimSpace(strings.TrimPrefix(tagStr, "mockup-import:"))
 	if rest == "" {
-		return "", false
+		return imf, false
 	}
 	if rest[0] == '"' {
 		end := strings.IndexByte(rest[1:], '"')
 		if end < 0 {
-			return rest[1:], true
+			imf.filename = rest[1:]
+			return imf, true
 		}
-		return rest[1 : end+1], true
+		imf.filename = rest[1 : end+1]
+		rest = strings.TrimSpace(rest[end+2:])
+	} else {
+		idx := strings.IndexByte(rest, ' ')
+		if idx < 0 {
+			imf.filename = rest
+			return imf, true
+		}
+		imf.filename = rest[:idx]
+		rest = strings.TrimSpace(rest[idx+1:])
 	}
-	return rest, true
+	for _, flag := range strings.Fields(rest) {
+		switch {
+		case strings.HasPrefix(flag, "indent:"):
+			v := strings.TrimPrefix(flag, "indent:")
+			imf.indent = strings.Trim(v, "\"'")
+		case strings.HasPrefix(flag, "indent="):
+			v := strings.TrimPrefix(flag, "indent=")
+			imf.indent = strings.Trim(v, "\"'")
+		}
+	}
+	return imf, true
 }
 
 // applyMinify applies minification to content.
@@ -889,6 +916,37 @@ func truncateCurrentLine(out *strings.Builder) {
 	}
 }
 
+// resolveIndent computes the indentation string for the indent flag.
+// "N" produces N spaces, "Ntab" produces N tabs.
+func resolveIndent(flag string) string {
+	if flag == "" {
+		return ""
+	}
+	if strings.HasSuffix(flag, "tab") {
+		n, _ := strconv.Atoi(strings.TrimSuffix(flag, "tab"))
+		if n <= 0 {
+			n = 1
+		}
+		return strings.Repeat("\t", n)
+	}
+	n, _ := strconv.Atoi(flag)
+	if n <= 0 {
+		return ""
+	}
+	return strings.Repeat(" ", n)
+}
+
+// applyIndent prepends the indent string to each non-empty line of data.
+func applyIndent(data []byte, indent string) []byte {
+	lines := strings.Split(string(data), "\n")
+	for i, line := range lines {
+		if line != "" {
+			lines[i] = indent + line
+		}
+	}
+	return []byte(strings.Join(lines, "\n"))
+}
+
 // resolveSrcPath resolves a path treating / and \ as equivalent separators.
 // A leading / or \ means relative to bucketSrc.
 // Otherwise relative to currentDir (the file being processed).
@@ -915,18 +973,22 @@ func (ms *Miniskin) resolveImportPath(filename string) string {
 
 func (ms *Miniskin) dispatchSingleTag(rawTag string, vars map[string]string, blockStack *[]blockFrame, out *strings.Builder, emit bool) (*strings.Builder, error) {
 	tagStr := strings.TrimSpace(rawTag)
-	if filename, ok := isMockupImport(tagStr); ok {
+	if imf, ok := isMockupImport(tagStr); ok {
 		if emit && !ms.skipVars {
 			return nil, fmt.Errorf("mockup-import only works in mockup mode")
 		}
 		if emit {
+			indentStr := resolveIndent(imf.indent)
 			if ms.lineMode {
 				truncateCurrentLine(out)
 			}
-			filePath := absPath(ms.resolveImportPath(filename))
+			filePath := absPath(ms.resolveImportPath(imf.filename))
 			data, err := os.ReadFile(filePath)
 			if err != nil {
 				return nil, fmt.Errorf("mockup-import %s: %w", filePath, err)
+			}
+			if indentStr != "" {
+				data = applyIndent(data, indentStr)
 			}
 			out.Write(data)
 			ms.importMarkOut = out
@@ -1293,11 +1355,17 @@ func (ms *Miniskin) handleDoubleTag(rawTag string, vars map[string]string, chain
 			} else if ms.skipVars {
 				out.WriteString("<%%" + trimmed + "%%>")
 			} else {
+				if ms.lineMode && strings.HasPrefix(trimmed, "include:") {
+					truncateCurrentLine(out)
+				}
 				resolved, err := ms.resolveDoubleTag(trimmed, vars, chain)
 				if err != nil {
 					return err
 				}
 				out.WriteString(resolved)
+				if ms.lineMode && strings.HasPrefix(trimmed, "include:") {
+					ms.consumeUntilNewline = true
+				}
 			}
 		}
 		return nil

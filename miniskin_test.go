@@ -2889,6 +2889,93 @@ func TestLineModeImportIfMockup(t *testing.T) {
 	}
 }
 
+// --- mockup-import indent
+
+func TestImportIndentSpaces(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "frag.html"), []byte("<p>one</p>\n<p>two</p>"), 0644)
+
+	ms := newMockup(dir, dir)
+	ms.lineMode = true
+	input := "<div>\n    <%%mockup-import:\"frag.html\" indent:4%%>\n</div>"
+	result, err := ms.resolvePercent(input, map[string]string{"mockup": "1"}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	expected := "<div>\n    <p>one</p>\n    <p>two</p></div>"
+	if result != expected {
+		t.Errorf("expected %q, got %q", expected, result)
+	}
+}
+
+func TestImportIndentTabs(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "frag.html"), []byte("<p>one</p>\n<p>two</p>"), 0644)
+
+	ms := newMockup(dir, dir)
+	ms.lineMode = true
+	input := "<div>\n\t<%%mockup-import:\"frag.html\" indent:2tab%%>\n</div>"
+	result, err := ms.resolvePercent(input, map[string]string{"mockup": "1"}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	expected := "<div>\n\t\t<p>one</p>\n\t\t<p>two</p></div>"
+	if result != expected {
+		t.Errorf("expected %q, got %q", expected, result)
+	}
+}
+
+func TestImportIndentPreservesEmptyLines(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "frag.txt"), []byte("a\n\nb"), 0644)
+
+	ms := newMockup(dir, dir)
+	ms.lineMode = true
+	input := "  <%%mockup-import:\"frag.txt\" indent:2%%>\n"
+	result, err := ms.resolvePercent(input, map[string]string{"mockup": "1"}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	expected := "  a\n\n  b"
+	if result != expected {
+		t.Errorf("expected %q, got %q", expected, result)
+	}
+}
+
+func TestImportIndentEqualsQuoted(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "frag.html"), []byte("<p>one</p>\n<p>two</p>"), 0644)
+
+	ms := newMockup(dir, dir)
+	ms.lineMode = true
+	input := "<div>\n\t<!--%%mockup-import:\"frag.html\" indent=\"2tab\"%%-->\n</div>"
+	result, err := ms.resolvePercent(input, map[string]string{"mockup": "1"}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	expected := "<div>\n\t\t<p>one</p>\n\t\t<p>two</p></div>"
+	if result != expected {
+		t.Errorf("expected %q, got %q", expected, result)
+	}
+}
+
+func TestImportNoIndent(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "frag.html"), []byte("<p>one</p>\n<p>two</p>"), 0644)
+
+	ms := newMockup(dir, dir)
+	ms.lineMode = true
+	input := "<div>\n    <%%mockup-import:\"frag.html\"%%>\n</div>"
+	result, err := ms.resolvePercent(input, map[string]string{"mockup": "1"}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	expected := "<div>\n<p>one</p>\n<p>two</p></div>"
+	if result != expected {
+		t.Errorf("expected %q, got %q", expected, result)
+	}
+}
+
 // --- Skin with global vars
 
 // --- Mixed open/close syntax: any opening (<%,<%%,<!--%,<!--%%) with any closing (%>,%%>,%-->,%%--->)

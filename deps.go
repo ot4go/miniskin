@@ -102,8 +102,8 @@ func scanExportsImports(content string) (exports, imports []string) {
 		if ef, ok := isMockupExport(trimmed); ok {
 			exports = append(exports, ef.filename)
 		}
-		if filename, ok := isMockupImport(trimmed); ok {
-			imports = append(imports, filename)
+		if imf, ok := isMockupImport(trimmed); ok {
+			imports = append(imports, imf.filename)
 		}
 	})
 	return
@@ -478,11 +478,11 @@ func scanExportDeps(content string) map[string][]string {
 			if len(stack) > 0 {
 				stack = stack[:len(stack)-1]
 			}
-		} else if filename, ok := isMockupImport(trimmed); ok {
+		} else if imf, ok := isMockupImport(trimmed); ok {
 			// Find nearest enclosing export block
 			for i := len(stack) - 1; i >= 0; i-- {
 				if stack[i].isExport {
-					result[stack[i].path] = append(result[stack[i].path], filename)
+					result[stack[i].path] = append(result[stack[i].path], imf.filename)
 					break
 				}
 			}

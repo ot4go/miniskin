@@ -121,7 +121,7 @@ Position of `<escape>` elements within a block is irrelevant. Child rules overri
 | `echo:text` | Emit text (uses default escape) |
 | `include:path` | Include file contents (double tags only, resolved recursively) |
 | `mockup-export:path [mode]` | Extract content to file (mockup mode only) |
-| `mockup-import:path` | Insert file contents (mockup mode only) |
+| `mockup-import:path [indent:N\|Ntab]` | Insert file contents (mockup mode only) |
 
 All directives work in all four tag syntaxes. `include:` requires double percent tags (`<%%include:path%%>`). Examples:
 
@@ -260,6 +260,16 @@ As a block tag, the inline content is kept between the import and `end` tags. Th
 ```
 
 This keeps mockup files self-contained and browser-renderable while the exported files remain the source of truth.
+
+**Indentation:** The `indent:N` flag prepends N spaces to each non-empty line of the imported content. Use `indent:Ntab` for tabs. This is useful when importing fragments into indented contexts:
+
+```html
+<div>
+    <section>
+        <!--%%mockup-import:"/shared/nav.html" indent:8%%-->
+    </section>
+</div>
+```
 
 **Nesting:** `mockup-import` inside `mockup-export` works normally (the imported content becomes part of the export). `mockup-export` inside `mockup-import` is ignored — imported content is inserted as raw text without parsing.
 
@@ -440,7 +450,8 @@ The root XML file (in `contentPath`) declares globals, escape rules, the bucket 
                template="custom_embed.tmpl">
     <bucket src="app" dst="/modules/app/reqctx/generated_assets.go"
             module-name="reqctx" recurse-folder="all" skin-dir="app/_skin"
-            template="custom_bucket.tmpl" />
+            template="custom_bucket.tmpl"
+            template-function-map="MyTemplateFuncMap()" />
   </bucket-list>
 </miniskin>
 ```
@@ -481,7 +492,7 @@ Resource lists can be **chained** (multiple at the same level) and **nested** (c
 </miniskin>
 ```
 
-Attributes `skin-dir`, `mux-include`, `mux-exclude`, and `<escape>` rules cascade from parent to child resource-lists, following the same override pattern used throughout the XML hierarchy.
+Attributes `skin-dir`, `mux-include`, `mux-exclude`, `template-function-map`, and `<escape>` rules cascade from parent to child resource-lists, following the same override pattern used throughout the XML hierarchy.
 
 ### Items
 
@@ -497,6 +508,7 @@ Each item in a resource list describes a content file:
 - `key` — logical key for asset lookup
 - `url` / `alt-url-abs` — URL routing attributes
 - `escape` — override default escape type for this item (`html`, `js`, `url`, `sql`, etc.)
+- `template-function-map` — Go expression returning `template.FuncMap` for this item (overrides parent)
 
 If `src` is absent, `file` is embedded as-is (no processing).
 
@@ -551,6 +563,46 @@ Override at a lower level:
 ```
 
 Patterns use Go's `filepath.Match` syntax (e.g. `*.css`, `fav.ico`, `app-*.js`).
+
+### Template function map
+
+The `template-function-map` attribute injects a `template.FuncMap` into parsed templates (items with the `parse` flag). The value is a Go expression that returns `template.FuncMap`, typically a function call.
+
+Cascades through three levels, each overriding the parent when set:
+
+```
+<bucket>  →  <resource-list>  →  <item>
+```
+
+```xml
+<bucket src="app" dst="/gen.go" module-name="app"
+        template="miniskin::mux"
+        template-function-map="AppFuncMap()">
+  <!-- All parsed items in this bucket use AppFuncMap() -->
+</bucket>
+```
+
+Override at resource-list or item level:
+
+```xml
+<resource-list urlbase="/admin" template-function-map="AdminFuncMap()">
+  <item type="html-template,nomux,parse" file="page.html" key="/admin/page" />
+  <item type="html-template,nomux,parse" file="special.html" key="/admin/special"
+        template-function-map="SpecialFuncMap()" />
+</resource-list>
+```
+
+The generated code calls `.Funcs(expr)` before `.Parse()`:
+
+```go
+// Without template-function-map:
+parsedTemplates["/page"] = template.Must(template.New("/page").Parse(string(content.PageHtml)))
+
+// With template-function-map="AppFuncMap()":
+parsedTemplates["/page"] = template.Must(template.New("/page").Funcs(AppFuncMap()).Parse(string(content.PageHtml)))
+```
+
+The function must be defined in the same package as the generated bucket file and must return `template.FuncMap`.
 
 ## Generated Go code
 

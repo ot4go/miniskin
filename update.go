@@ -184,14 +184,14 @@ func refreshImports(content, contentPath, fileDir string) (string, error) {
 
 	for i := 0; i < len(tags); {
 		trimmed := strings.TrimSpace(tags[i].content)
-		filename, ok := isMockupImport(trimmed)
+		imf, ok := isMockupImport(trimmed)
 		if !ok {
 			i++
 			continue
 		}
 
 		// Read the referenced file
-		filePath := absPath(importFilePath(filename, contentPath, fileDir))
+		filePath := absPath(importFilePath(imf.filename, contentPath, fileDir))
 		data, err := os.ReadFile(filePath)
 		if err != nil {
 			return "", fmt.Errorf("refreshing mockup-import %s: %w", filePath, err)
@@ -215,6 +215,10 @@ func refreshImports(content, contentPath, fileDir string) (string, error) {
 			endOfLine++ // include the \n
 		}
 		out.WriteString(content[pos:endOfLine])
+		indentStr := resolveIndent(imf.indent)
+		if indentStr != "" {
+			data = applyIndent(data, indentStr)
+		}
 		out.Write(data)
 		out.WriteString("\n")
 

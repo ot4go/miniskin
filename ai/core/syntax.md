@@ -19,9 +19,9 @@ Single-percent tags (`<%`, `<!--%`) apply the default escape configured via `<es
 | `endif` / `end-if` / `end` | Close conditional block |
 | `mockup-export:path [append\|overwrite] [ltrim\|rtrim\|trim]` | Extract content to file (mockup mode only). `ltrim`: dedent, `rtrim`: strip trailing whitespace, `trim`: both |
 | `end-mockup-export` / `end` | Close mockup-export block |
-| `mockup-import:path` | Insert file contents (mockup mode only) |
+| `mockup-import:path [indent:N\|Ntab]` | Insert file contents (mockup mode only). `indent:4`: 4 spaces per line, `indent:2tab`: 2 tabs per line. Value accepts quotes: `indent:"8tab"`, `indent="8tab"` |
 | `end-mockup-import` / `end` | Close mockup-import block |
-| `include:path` | Include file (double tags only, resolved recursively). Absolute (`/path`) relative to bucket src; relative to current file otherwise |
+| `include:path` | Include file (double tags only, resolved recursively). Absolute (`/path`) relative to bucket src; relative to current file otherwise. In line-mode: entire line containing the tag is removed (including surrounding comments like `/* */`) |
 | `note:text` | Discarded silently |
 | `echo:text` | Emit text (uses default escape) |
 

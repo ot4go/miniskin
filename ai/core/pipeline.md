@@ -48,7 +48,7 @@ Lines starting with `@` are directives (processed by miniskin, not passed as var
     <item type="static" file="app.css" />
     <item type="html-template,parse" src="page_src.html" file="page.html" key="/page" />
   </resource-list>
-  <mockup-list save-mode="append">
+  <mockup-list save-mode="append" line-mode="off">
     <var name="policybanner" value="1" />
     <item src="mockup_login.html">
       <var name="title" value="Login" />
@@ -70,7 +70,7 @@ Resource lists can be **chained** (multiple at the same level) and **nested** (w
 </miniskin>
 ```
 
-Nested resource lists inherit `skin-dir`, `mux-include`, `mux-exclude`, and `<escape>` rules from their parent.
+Nested resource lists inherit `skin-dir`, `mux-include`, `mux-exclude`, `template-function-map`, and `<escape>` rules from their parent.
 
 ## Item attributes
 
@@ -80,6 +80,7 @@ Nested resource lists inherit `skin-dir`, `mux-include`, `mux-exclude`, and `<es
 - `key` — logical key for asset lookup
 - `url` / `alt-url-abs` — URL routing attributes
 - `escape` — override default escape type for this item (`html`, `js`, `url`, `sql`, etc.)
+- `template-function-map` — Go expression returning `template.FuncMap`; injected via `.Funcs(expr)` before `.Parse()` for `parse` items (cascades from `<bucket>` → `<resource-list>` → `<item>`)
 
 ## Built-in templates
 
