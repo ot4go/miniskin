@@ -1,3 +1,64 @@
+// Command miniskin is the CLI for the miniskin build-time template assembler.
+//
+// Miniskin resolves percent-style template tags, applies skin overlays, and
+// produces a set of files ready to be embedded into a Go binary via go:embed.
+// See https://pkg.go.dev/github.com/ot4go/miniskin for the library API.
+//
+// # Usage
+//
+//	miniskin <command> [flags]
+//
+// # Commands
+//
+//   - run                    Mockup update + build embed assets + generate Go code.
+//   - generate               Build embed assets + generate Go code (no mockup pass).
+//   - generate-claude-skill  Generate a Claude Code SKILL.md describing the project.
+//   - generate-agent-docs    Generate an agent-agnostic AGENTS.md (Cursor, Aider, etc.).
+//   - mockup update          Export mockup pieces and refresh mockup-import blocks.
+//   - mockup clean           Empty the inline content of mockup-import blocks.
+//   - mockup negative        Transform a mockup file into a negative template.
+//   - deps                   Print the dependency map and processing order.
+//   - combine <dir>          Combine subdirectory .miniskin.xml files into one.
+//   - split <file>           Split nested resource-lists into separate XML files.
+//
+// # Common flags
+//
+//	-content string   path to the content directory (default ".")
+//	-modules string   path to the modules directory (default ".")
+//	-v                verbose output (dependency analysis, processing order)
+//	-vv               debug output (all internal details)
+//	-silent           suppress all output
+//
+// # Command-specific flags
+//
+// mockup negative:
+//
+//	-src string   source mockup file (required)
+//	-dst string   destination negative template file (required)
+//
+// generate-claude-skill:
+//
+//	-dst string   destination path (default ".claude/skills/miniskin/SKILL.md")
+//	-force        overwrite an existing destination file
+//
+// generate-agent-docs:
+//
+//	-dst string   destination path (default "AGENTS.md")
+//	-force        overwrite an existing destination file
+//
+// # Examples
+//
+// Run the full pipeline against the current directory:
+//
+//	miniskin run
+//
+// Inspect dependencies and processing order with verbose output:
+//
+//	miniskin deps -v
+//
+// Convert a mockup file into a negative template:
+//
+//	miniskin mockup negative -src page.html -dst page.tmpl.html
 package main
 
 import (
