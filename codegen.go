@@ -82,13 +82,19 @@ func MiniskinMockupClean(contentPath, modulesPath string, verbosity ...Verbosity
 }
 
 // GenerateAll writes the embed file and all bucket files.
+// Outputs listed in the bucket-list "omit" attribute are skipped:
+// "embed" → skip the embed file, "module" → skip per-bucket module files.
 func (cg *Codegen) GenerateAll(result *Result) error {
-	if err := cg.GenerateEmbed(result); err != nil {
-		return err
-	}
-	for _, br := range result.Buckets {
-		if err := cg.GenerateBucketFile(result, br); err != nil {
+	if !result.BucketList.OmitsCodegen("embed") {
+		if err := cg.GenerateEmbed(result); err != nil {
 			return err
+		}
+	}
+	if !result.BucketList.OmitsCodegen("module") {
+		for _, br := range result.Buckets {
+			if err := cg.GenerateBucketFile(result, br); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

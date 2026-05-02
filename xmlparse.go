@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -56,6 +57,7 @@ type xmlBucketList struct {
 	ProjectRoot string      `xml:"project-root,attr,omitempty"`
 	MuxInclude  string      `xml:"mux-include,attr,omitempty"`
 	MuxExclude  string      `xml:"mux-exclude,attr,omitempty"`
+	Omit        string      `xml:"omit,attr,omitempty"`
 	Escapes     []xmlEscape `xml:"escape,omitempty"`
 	Buckets     []xmlBucket `xml:"bucket"`
 }
@@ -107,7 +109,16 @@ type BucketList struct {
 	Import      string
 	Template    string // custom template file for embed generation
 	ProjectRoot string // project root relative to contentPath (for resolving dst)
+	Omit        string // comma/space-separated codegen outputs to skip ("embed", "module")
 	Buckets     []Bucket
+}
+
+// OmitsCodegen reports whether the given codegen output is listed in the Omit attribute.
+// Recognised keys: "embed" (skip the embed file), "module" (skip per-bucket module files).
+func (bl BucketList) OmitsCodegen(key string) bool {
+	return slices.Contains(strings.FieldsFunc(bl.Omit, func(r rune) bool {
+		return r == ',' || r == ' ' || r == '\t'
+	}), key)
 }
 
 // Bucket represents a content bucket.
@@ -285,6 +296,7 @@ func parseBucketList(xbl *xmlBucketList, defaultSkinDir string, parentMuxInclude
 		Import:      xbl.Import,
 		Template:    xbl.Template,
 		ProjectRoot: xbl.ProjectRoot,
+		Omit:        xbl.Omit,
 		Buckets:     make([]Bucket, len(xbl.Buckets)),
 	}
 	for i, b := range xbl.Buckets {
