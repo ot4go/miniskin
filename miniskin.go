@@ -96,6 +96,9 @@ type Miniskin struct {
 	defaultEscapeFn func(string) string  // active default escape for single tags
 	activeExport    string               // when set, only process this export path
 	bucketSrc       string               // bucket src directory (base for absolute mockup-export paths)
+	docBuffer       map[string]string    // labeled buffers populated by doc-block-begin/end
+	collectingDocBlocks bool             // pre-pass: doc-block-toc/content emit "" instead of reading docBuffer
+	dryRun          bool                 // pre-pass: skip writing item output files
 }
 
 // MiniskinNew creates a Miniskin instance.
@@ -244,6 +247,10 @@ func (ms *Miniskin) BuildEmbed() (*Result, error) {
 			return nil, err
 		}
 
+		if err := ms.collectDocBlocks(items); err != nil {
+			return nil, err
+		}
+
 		for i := range items {
 			items[i].Index = idx
 			idx++
@@ -335,6 +342,10 @@ func (ms *Miniskin) Run() (*Result, error) {
 		ms.bucketSrc = resolveSrcPath(bucket.Src, ms.contentPath, ms.contentPath)
 		items, err := ms.collectItems(bucket)
 		if err != nil {
+			return nil, err
+		}
+
+		if err := ms.collectDocBlocks(items); err != nil {
 			return nil, err
 		}
 
@@ -513,12 +524,37 @@ func (ms *Miniskin) processItem(item *Item) error {
 		body = applyLineEnding(body, ending)
 	}
 
-	// Write to the output file
-	outPath := absPath(item.filePath())
-	if err := os.WriteFile(outPath, []byte(body), 0644); err != nil {
-		return fmt.Errorf("writing %s: %w", outPath, err)
+	// Write to the output file (skipped during doc-block pre-pass)
+	if !ms.dryRun {
+		outPath := absPath(item.filePath())
+		if err := os.WriteFile(outPath, []byte(body), 0644); err != nil {
+			return fmt.Errorf("writing %s: %w", outPath, err)
+		}
 	}
 
+	return nil
+}
+
+// collectDocBlocks runs a dry-run pass over the bucket items to populate
+// ms.docBuffer with the contents of all doc-block-begin/end blocks. During
+// this pass, doc-block-toc and doc-block-content emit "" so missing-buffer
+// errors don't fire before the buffers are known.
+func (ms *Miniskin) collectDocBlocks(items []Item) error {
+	ms.docBuffer = make(map[string]string)
+	ms.collectingDocBlocks = true
+	ms.dryRun = true
+	defer func() {
+		ms.collectingDocBlocks = false
+		ms.dryRun = false
+	}()
+	for i := range items {
+		if !items[i].NeedsProcessing() {
+			continue
+		}
+		if err := ms.processItem(&items[i]); err != nil {
+			return fmt.Errorf("doc-block pre-pass on %s: %w", absPath(items[i].filePath()), err)
+		}
+	}
 	return nil
 }
 

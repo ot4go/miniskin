@@ -44,18 +44,20 @@ type blockKind int
 const (
 	blockCond blockKind = iota
 	blockSave
+	blockDocBuffer
 )
 
 type blockFrame struct {
-	kind     blockKind
-	anyTaken bool // cond: any branch taken
-	current  bool // cond: current branch emitting
-	filename string           // save: target file
-	saveMode string           // save: "append", "overwrite", or "" (use default)
-	ltrim    bool             // save: dedent content (remove common leading whitespace)
-	rtrim    bool             // save: remove trailing whitespace from lines
-	prevOut  *strings.Builder // save: previous output buffer
-	lineMode bool             // consume full line on close
+	kind       blockKind
+	anyTaken   bool // cond: any branch taken
+	current    bool // cond: current branch emitting
+	filename   string           // save: target file
+	saveMode   string           // save: "append", "overwrite", or "" (use default)
+	ltrim      bool             // save: dedent content (remove common leading whitespace)
+	rtrim      bool             // save: remove trailing whitespace from lines
+	prevOut    *strings.Builder // save / docBuffer: previous output buffer
+	lineMode   bool             // consume full line on close
+	bufferName string           // docBuffer: target name in ms.docBuffer
 }
 
 func shouldEmit(stack []blockFrame) bool {
@@ -1009,6 +1011,45 @@ func (ms *Miniskin) resolveImportPath(filename string) string {
 
 func (ms *Miniskin) dispatchSingleTag(rawTag string, vars map[string]string, blockStack *[]blockFrame, out *strings.Builder, emit bool) (*strings.Builder, error) {
 	tagStr := strings.TrimSpace(rawTag)
+	if name, ok := docBlockOp(tagStr, "begin"); ok {
+		if ms.lineMode {
+			truncateCurrentLine(out)
+		}
+		*blockStack = append(*blockStack, blockFrame{kind: blockDocBuffer, bufferName: name, prevOut: out, lineMode: ms.lineMode})
+		if ms.lineMode {
+			ms.consumeUntilNewline = true
+		}
+		if emit {
+			return new(strings.Builder), nil
+		}
+		return out, nil
+	}
+	if name, ok := docBlockOp(tagStr, "end"); ok {
+		if len(*blockStack) == 0 {
+			return nil, fmt.Errorf("<%sdoc-block-end:%s%%> without matching begin", "%", name)
+		}
+		top := (*blockStack)[len(*blockStack)-1]
+		if top.kind != blockDocBuffer {
+			return nil, fmt.Errorf("<%sdoc-block-end:%s%%> but current block is not a doc-block", "%", name)
+		}
+		if top.bufferName != name {
+			return nil, fmt.Errorf("<%sdoc-block-end:%s%%> doesn't match begin:%s", "%", name, top.bufferName)
+		}
+		*blockStack = (*blockStack)[:len(*blockStack)-1]
+		if top.lineMode {
+			truncateCurrentLine(out)
+		}
+		if emit {
+			if ms.docBuffer == nil {
+				ms.docBuffer = make(map[string]string)
+			}
+			ms.docBuffer[name] = out.String()
+		}
+		if top.lineMode {
+			ms.consumeUntilNewline = true
+		}
+		return top.prevOut, nil
+	}
 	if imf, ok := isMockupImport(tagStr); ok {
 		if emit && !ms.skipVars {
 			return nil, fmt.Errorf("mockup-import only works in mockup mode")
@@ -1176,6 +1217,12 @@ func (ms *Miniskin) dispatchSingleTag(rawTag string, vars map[string]string, blo
 
 func (ms *Miniskin) dispatchDoubleTag(rawTag string, vars map[string]string, chain []string, blockStack *[]blockFrame, out *strings.Builder, emit bool) (*strings.Builder, error) {
 	trimmed := strings.TrimSpace(rawTag)
+	if _, ok := docBlockOp(trimmed, "begin"); ok {
+		return ms.dispatchSingleTag(rawTag, vars, blockStack, out, emit)
+	}
+	if _, ok := docBlockOp(trimmed, "end"); ok {
+		return ms.dispatchSingleTag(rawTag, vars, blockStack, out, emit)
+	}
 	if _, ok := isMockupImport(trimmed); ok {
 		return ms.dispatchSingleTag(rawTag, vars, blockStack, out, emit)
 	}
@@ -1434,6 +1481,28 @@ func (ms *Miniskin) resolveDoubleTag(name string, vars map[string]string, chain 
 	if strings.HasPrefix(name, "include-notes:") {
 		includePath := strings.TrimSpace(strings.TrimPrefix(name, "include-notes:"))
 		return ms.resolveIncludeNotes(includePath, chain)
+	}
+
+	if bufName, ok := docBlockOp(name, "toc"); ok {
+		if ms.collectingDocBlocks {
+			return "", nil
+		}
+		content, defined := ms.docBuffer[bufName]
+		if !defined {
+			return "", fmt.Errorf("<%%doc-block-toc:%s%%> references unknown buffer", bufName)
+		}
+		return generateDocBlockTOC(content), nil
+	}
+
+	if bufName, ok := docBlockOp(name, "content"); ok {
+		if ms.collectingDocBlocks {
+			return "", nil
+		}
+		content, defined := ms.docBuffer[bufName]
+		if !defined {
+			return "", fmt.Errorf("<%%doc-block-content:%s%%> references unknown buffer", bufName)
+		}
+		return content, nil
 	}
 
 	val, ok := vars[name]
