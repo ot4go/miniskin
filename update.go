@@ -264,6 +264,13 @@ func findTags(content string) []tagInfo {
 		c := content[i]
 		switch state {
 		case stText:
+			// /*<% — JS-comment wrapper opener: tagStart includes the /*
+			if c == '/' && i+3 < len(content) && content[i+1] == '*' && content[i+2] == '<' && content[i+3] == '%' {
+				tagStart = i
+				i += 2
+				state = stLT
+				continue
+			}
 			if c == '<' {
 				tagStart = i
 				state = stLT
@@ -296,7 +303,13 @@ func findTags(content string) []tagInfo {
 		case stSingleClose:
 			switch c {
 			case '>':
-				tags = append(tags, tagInfo{start: tagStart, end: i + 1, content: tag.String()})
+				// %>*/ — JS-comment wrapper closer: end includes the */
+				if i+2 < len(content) && content[i+1] == '*' && content[i+2] == '/' {
+					tags = append(tags, tagInfo{start: tagStart, end: i + 3, content: tag.String()})
+					i += 2
+				} else {
+					tags = append(tags, tagInfo{start: tagStart, end: i + 1, content: tag.String()})
+				}
 				state = stText
 			case '-':
 				state = stSCmtD1
@@ -328,7 +341,13 @@ func findTags(content string) []tagInfo {
 		case stDoubleClose2:
 			switch c {
 			case '>':
-				tags = append(tags, tagInfo{start: tagStart, end: i + 1, content: tag.String()})
+				// %%>*/ — JS-comment wrapper closer: end includes the */
+				if i+2 < len(content) && content[i+1] == '*' && content[i+2] == '/' {
+					tags = append(tags, tagInfo{start: tagStart, end: i + 3, content: tag.String()})
+					i += 2
+				} else {
+					tags = append(tags, tagInfo{start: tagStart, end: i + 1, content: tag.String()})
+				}
 				state = stText
 			case '-':
 				state = stDCmtD1

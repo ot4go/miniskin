@@ -40,6 +40,18 @@ Lines starting with `@` are directives (processed by miniskin, not passed as var
 </miniskin>
 ```
 
+### `<bucket-list>` attributes
+
+| Attribute | Description |
+|---|---|
+| `filename`     | embed file path written by `Codegen.GenerateEmbed` (e.g. `generated_embed.go`) |
+| `module`       | Go package name for the generated embed file |
+| `import`       | Go import path for the generated embed file |
+| `template`     | custom embed template (`miniskin::default`, `miniskin::mux`, or a file) |
+| `project-root` | path resolved from `contentPath` for resolving bucket `dst`s |
+| `mux-include` / `mux-exclude` | cascading mux glob patterns |
+| `omit`         | comma/space-separated codegen outputs to skip — `embed` (skip the embed file) and/or `module` (skip per-bucket module files). When both are listed, `filename` and `module` may be omitted entirely. Useful when miniskin is used to assemble assets for non-Go projects. |
+
 **Subdirectory** (`subdir/*.miniskin.xml`):
 
 ```xml

@@ -1,13 +1,17 @@
-## Percent-tag syntaxes (4 forms)
+## Percent-tag syntaxes (6 forms)
 
 | Syntax | Behavior |
 |---|---|
 | `<%var%>` | value, escaped per `<escape>` rules |
 | `<%%var%%>` | value, never escaped |
-| `<!--%var%-->` | same as `<%>`, hidden in browser |
-| `<!--%%var%%-->` | same as `<%%>`, hidden in browser |
+| `<!--%var%-->` | same as `<%>`, hidden in browser (HTML comment wrapper) |
+| `<!--%%var%%-->` | same as `<%%>`, hidden in browser (HTML comment wrapper) |
+| `/*<%var%>*/` | same as `<%>`, hidden as a JS / CSS comment |
+| `/*<%%var%%>*/` | same as `<%%>`, hidden as a JS / CSS comment |
 
-Single-percent tags (`<%`, `<!--%`) apply the default escape configured via `<escape>` in XML. Double-percent tags (`<%%`, `<!--%%`) never escape. Default escape is none unless configured.
+Single-percent tags (`<%`, `<!--%`, `/*<%`) apply the default escape configured via `<escape>` in XML. Double-percent tags (`<%%`, `<!--%%`, `/*<%%`) never escape. Default escape is none unless configured.
+
+The JS-comment wrapper (`/*<%`, `%>*/`) is recognised at apertura and closure independently — they need not be balanced. Use it inside `.js` / `.css` source so the embedded tag is also a valid block comment when the file is loaded raw (e.g. during mockup development). Only `/*<%` matches; `/*<!` is **not** treated as a wrapper for HTML comments.
 
 ## Directives
 
@@ -22,6 +26,7 @@ Single-percent tags (`<%`, `<!--%`) apply the default escape configured via `<es
 | `mockup-import:path [indent:N\|Ntab]` | Insert file contents (mockup mode only). `indent:4`: 4 spaces per line, `indent:2tab`: 2 tabs per line. Value accepts quotes: `indent:"8tab"`, `indent="8tab"` |
 | `end-mockup-import` / `end` | Close mockup-import block |
 | `include:path` | Include file (double tags only, resolved recursively). Absolute (`/path`) relative to bucket src; relative to current file otherwise. In line-mode: entire line containing the tag is removed (including surrounding comments like `/* */`) |
+| `include-notes:path` | Include file (double tags only). Returns only the bodies of `note:` tags found in the file, dedented and joined by a blank line. Used to assemble per-component documentation into a single Markdown file. Same path resolution as `include:` |
 | `note:text` | Discarded silently |
 | `echo:text` | Emit text (uses default escape) |
 

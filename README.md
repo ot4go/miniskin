@@ -48,16 +48,24 @@ miniskin addresses these problems with an explicit XML catalog that declares exa
 
 ### Percent tags
 
-Four equivalent syntaxes, resolved at generation time:
+Six equivalent syntaxes, resolved at generation time:
 
 | Syntax | Behavior |
 |---|---|
 | `<%var%>` | value, escaped per `<escape>` rules |
 | `<%%var%%>` | value, never escaped |
-| `<!--%var%-->` | same as `<%>`, hidden in browser |
-| `<!--%%var%%-->` | same as `<%%>`, hidden in browser |
+| `<!--%var%-->` | same as `<%>`, hidden as an HTML comment |
+| `<!--%%var%%-->` | same as `<%%>`, hidden as an HTML comment |
+| `/*<%var%>*/` | same as `<%>`, hidden as a JS / CSS comment |
+| `/*<%%var%%>*/` | same as `<%%>`, hidden as a JS / CSS comment |
 
 Double percent tags also support includes: `<%%include:/path/to/file%%>`
+
+The JS-comment wrapper (`/*<%`, `%>*/`) keeps tags valid inside `.js` /
+`.css` files so they read as block comments when loaded raw (useful
+during mockup development). Apertura and closure are independent — a
+tag opened with `/*<%` may close with `%>` (the `*/` is not consumed)
+and vice versa.
 
 ### Escape types
 
@@ -128,6 +136,7 @@ Position of `<escape>` elements within a block is irrelevant. Child rules overri
 | `note:text` | Discarded silently (comment) |
 | `echo:text` | Emit text (uses default escape) |
 | `include:path` | Include file contents (double tags only, resolved recursively) |
+| `include-notes:path` | Include only the bodies of `note:` tags from the file (double tags only). Used to assemble per-component documentation into a single Markdown |
 | `mockup-export:path [mode]` | Extract content to file (mockup mode only) |
 | `mockup-import:path [indent:N\|Ntab]` | Insert file contents (mockup mode only) |
 
@@ -463,6 +472,28 @@ The root XML file (in `contentPath`) declares globals, escape rules, the bucket 
   </bucket-list>
 </miniskin>
 ```
+
+`<bucket-list>` accepts an `omit` attribute to skip codegen outputs.
+Values are comma- or space-separated:
+
+| Value | Effect |
+|---|---|
+| `embed` | skip the embed file (`Codegen.GenerateEmbed`) |
+| `module` | skip per-bucket module files (`Codegen.GenerateBucketFile`) |
+
+```xml
+<bucket-list omit="embed,module">
+  <bucket src=".">
+    <resource-list>
+      <item type="static,parse" src="./_source.list" file="bundle.js" />
+    </resource-list>
+  </bucket>
+</bucket-list>
+```
+
+When both outputs are omitted, `filename` and `module` may be left
+unset — useful when miniskin is being used to assemble assets for a
+non-Go project (e.g. a JavaScript bundle).
 
 ### Subdirectory
 

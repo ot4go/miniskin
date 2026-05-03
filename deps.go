@@ -119,6 +119,12 @@ func walkTags(content string, fn func(tag string)) {
 		c := content[i]
 		switch state {
 		case stText:
+			// /*<% — JS-comment wrapper opener: skip /* and let < be consumed
+			if c == '/' && i+3 < len(content) && content[i+1] == '*' && content[i+2] == '<' && content[i+3] == '%' {
+				i += 2
+				state = stLT
+				continue
+			}
 			if c == '<' {
 				state = stLT
 			}
@@ -150,6 +156,10 @@ func walkTags(content string, fn func(tag string)) {
 		case stSingleClose:
 			switch c {
 			case '>':
+				// %>*/ — JS-comment wrapper closer: also consume */
+				if i+2 < len(content) && content[i+1] == '*' && content[i+2] == '/' {
+					i += 2
+				}
 				fn(tag.String())
 				state = stText
 			case '-':
@@ -182,6 +192,10 @@ func walkTags(content string, fn func(tag string)) {
 		case stDoubleClose2:
 			switch c {
 			case '>':
+				// %%>*/ — JS-comment wrapper closer: also consume */
+				if i+2 < len(content) && content[i+1] == '*' && content[i+2] == '/' {
+					i += 2
+				}
 				fn(tag.String())
 				state = stText
 			case '-':

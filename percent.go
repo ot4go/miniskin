@@ -116,6 +116,15 @@ func transformNegative(content string) string {
 		c := content[i]
 		switch state {
 		case stText:
+			// /*<% — JS-comment wrapper opener: skip /* and let < be consumed.
+			// Only matches /*<% (not /*<!), to avoid wrapping HTML comments.
+			// tagStart points at /, so content[pos:tagStart] excludes the wrapper.
+			if c == '/' && i+3 < len(content) && content[i+1] == '*' && content[i+2] == '<' && content[i+3] == '%' {
+				tagStart = i
+				i += 2 // i lands on <; loop's i++ moves past it; state accepts <
+				state = stLT
+				continue
+			}
 			if c == '<' {
 				tagStart = i
 				state = stLT
@@ -148,7 +157,13 @@ func transformNegative(content string) string {
 		case stSingleClose:
 			switch c {
 			case '>':
-				handleTag(i + 1)
+				// %>*/ — JS-comment wrapper closer: also consume */
+				if i+2 < len(content) && content[i+1] == '*' && content[i+2] == '/' {
+					handleTag(i + 3)
+					i += 2
+				} else {
+					handleTag(i + 1)
+				}
 				state = stText
 			case '-':
 				state = stSCmtD1
@@ -180,7 +195,13 @@ func transformNegative(content string) string {
 		case stDoubleClose2:
 			switch c {
 			case '>':
-				handleTag(i + 1)
+				// %%>*/ — JS-comment wrapper closer: also consume */
+				if i+2 < len(content) && content[i+1] == '*' && content[i+2] == '/' {
+					handleTag(i + 3)
+					i += 2
+				} else {
+					handleTag(i + 1)
+				}
 				state = stText
 			case '-':
 				state = stDCmtD1
@@ -380,6 +401,13 @@ func (ms *Miniskin) resolvePercent(content string, vars map[string]string, chain
 
 		switch state {
 		case stText:
+			// /*<% — JS-comment wrapper opener: skip /* (don't emit) and let < be consumed.
+			// Only matches /*<% (not /*<!), to avoid wrapping HTML comments.
+			if c == '/' && i+3 < len(content) && content[i+1] == '*' && content[i+2] == '<' && content[i+3] == '%' {
+				i += 2 // i lands on <; loop's i++ moves past it; state accepts <
+				state = stLT
+				continue
+			}
 			if c == '<' {
 				state = stLT
 			} else if emit {
@@ -421,6 +449,10 @@ func (ms *Miniskin) resolvePercent(content string, vars map[string]string, chain
 		case stSingleClose:
 			switch c {
 			case '>':
+				// %>*/ — JS-comment wrapper closer: also consume */
+				if i+2 < len(content) && content[i+1] == '*' && content[i+2] == '/' {
+					i += 2
+				}
 				var err error
 				out, err = ms.dispatchSingleTag(tag.String(), vars, &blockStack, out, emit)
 				if err != nil {
@@ -462,6 +494,10 @@ func (ms *Miniskin) resolvePercent(content string, vars map[string]string, chain
 		case stDoubleClose2:
 			switch c {
 			case '>':
+				// %%>*/ — JS-comment wrapper closer: also consume */
+				if i+2 < len(content) && content[i+1] == '*' && content[i+2] == '/' {
+					i += 2
+				}
 				var err error
 				out, err = ms.dispatchDoubleTag(tag.String(), vars, chain, &blockStack, out, emit)
 				if err != nil {
@@ -1395,6 +1431,11 @@ func (ms *Miniskin) resolveDoubleTag(name string, vars map[string]string, chain 
 		return ms.resolveInclude(includePath, vars, chain)
 	}
 
+	if strings.HasPrefix(name, "include-notes:") {
+		includePath := strings.TrimSpace(strings.TrimPrefix(name, "include-notes:"))
+		return ms.resolveIncludeNotes(includePath, chain)
+	}
+
 	val, ok := vars[name]
 	if !ok {
 		return "", fmt.Errorf("undefined variable <%%%s%%>", name)
@@ -1436,4 +1477,82 @@ func (ms *Miniskin) resolveInclude(includePath string, vars map[string]string, c
 	}
 
 	return resolved, nil
+}
+
+// resolveIncludeNotes reads a file and returns the concatenated bodies of all
+// note: tags found in it (any of the 4 tag syntaxes). Note bodies are trimmed
+// of common leading indentation and separated by a blank line. Used by
+// <%% include-notes:path %%> to extract documentation embedded as notes.
+func (ms *Miniskin) resolveIncludeNotes(includePath string, chain []string) (string, error) {
+	bucketSrc := ms.bucketSrc
+	if bucketSrc == "" {
+		bucketSrc = ms.contentPath
+	}
+	var currentDir string
+	if len(chain) > 0 {
+		currentDir = filepath.Dir(chain[len(chain)-1])
+	} else {
+		currentDir = bucketSrc
+	}
+	fullPath := resolveSrcPath(includePath, bucketSrc, currentDir)
+	fullPath, _ = filepath.Abs(fullPath)
+
+	data, err := os.ReadFile(fullPath)
+	if err != nil {
+		return "", fmt.Errorf("include-notes %s (resolved: %s): %w", includePath, fullPath, err)
+	}
+
+	return extractNotes(string(data)), nil
+}
+
+// extractNotes returns the concatenated bodies of all note: tags in content.
+// Each body is dedented (common leading whitespace removed) and trimmed.
+// Bodies are joined by a blank line.
+func extractNotes(content string) string {
+	var bodies []string
+	walkTags(content, func(tag string) {
+		trimmed := strings.TrimSpace(tag)
+		if !strings.HasPrefix(trimmed, "note:") {
+			return
+		}
+		body := strings.TrimPrefix(trimmed, "note:")
+		bodies = append(bodies, dedent(body))
+	})
+	return strings.Join(bodies, "\n\n")
+}
+
+// dedent trims a leading/trailing blank line and removes the longest common
+// leading whitespace from every non-blank line.
+func dedent(s string) string {
+	lines := strings.Split(s, "\n")
+	// Drop a single leading and trailing blank line if present.
+	if len(lines) > 0 && strings.TrimSpace(lines[0]) == "" {
+		lines = lines[1:]
+	}
+	if len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+
+	common := -1
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		indent := 0
+		for indent < len(line) && (line[indent] == ' ' || line[indent] == '\t') {
+			indent++
+		}
+		if common == -1 || indent < common {
+			common = indent
+		}
+	}
+	if common <= 0 {
+		return strings.Join(lines, "\n")
+	}
+	for i, line := range lines {
+		if len(line) >= common {
+			lines[i] = line[common:]
+		}
+	}
+	return strings.Join(lines, "\n")
 }
