@@ -46,6 +46,28 @@ content, _ := miniskin.GenerateSkill()
 content := miniskin.GenerateAgentDocs()
 ```
 
+## Doc-block buffers
+
+Capture a region into a named buffer, then emit a generated table of contents and the captured content from elsewhere:
+
+```
+<%% doc-block-begin: components %%>
+<%% include-notes:btn_grid.js %%>
+<%% include-notes:clock_display.js %%>
+<%% include-notes:credential_password.js %%>
+<%% doc-block-end: components %%>
+
+# Contents
+
+<%% doc-block-toc: components %%>
+
+---
+
+<%% doc-block-content: components %%>
+```
+
+`doc-block-toc` walks the captured markdown for `#` and `##` headers and emits a nested list with GitHub-compatible anchors (duplicates get `-1`, `-2`, …). `doc-block-content` re-emits the captured text verbatim. Buffers are scoped to the bucket, so capture in one resource-list item and emit in another works regardless of item order — a pre-pass populates `ms.docBuffer` before the regular pass runs.
+
 ## Install
 
 ```

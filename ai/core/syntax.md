@@ -27,6 +27,9 @@ The JS-comment wrapper (`/*<%`, `%>*/`) is recognised at apertura and closure in
 | `end-mockup-import` / `end` | Close mockup-import block |
 | `include:path` | Include file (double tags only, resolved recursively). Absolute (`/path`) relative to bucket src; relative to current file otherwise. In line-mode: entire line containing the tag is removed (including surrounding comments like `/* */`) |
 | `include-notes:path` | Include file (double tags only). Returns only the bodies of `note:` tags found in the file, dedented and joined by a blank line. Used to assemble per-component documentation into a single Markdown file. Same path resolution as `include:` |
+| `doc-block-begin:NAME` / `doc-block-end:NAME` | Capture content between the markers into a labeled, in-memory buffer (`ms.docBuffer[NAME]`). The captured region is **not** emitted in place — only stored. After capture, the buffer can be replayed elsewhere via `doc-block-content` or summarised via `doc-block-toc`. Buffer scope is bucket-global: a buffer captured in one resource-list item is visible from other items in the same bucket |
+| `doc-block-content:NAME` | Emit the literal contents of `doc_buffer[NAME]`. Errors if the buffer was never defined in this bucket |
+| `doc-block-toc:NAME` | Emit a nested unordered list of the H1 (`#`) and H2 (`##`) headers found in `doc_buffer[NAME]`, with GitHub-compatible anchors (lowercase, alphanumerics, dashes; duplicates suffixed `-1`, `-2`, …). Code-fenced regions are skipped. Errors if the buffer was never defined |
 | `note:text` | Discarded silently |
 | `echo:text` | Emit text (uses default escape) |
 

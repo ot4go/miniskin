@@ -137,6 +137,9 @@ Position of `<escape>` elements within a block is irrelevant. Child rules overri
 | `echo:text` | Emit text (uses default escape) |
 | `include:path` | Include file contents (double tags only, resolved recursively) |
 | `include-notes:path` | Include only the bodies of `note:` tags from the file (double tags only). Used to assemble per-component documentation into a single Markdown |
+| `doc-block-begin:NAME` / `doc-block-end:NAME` | Capture content between the markers into the named buffer `ms.docBuffer[NAME]`; the captured region is not emitted in place |
+| `doc-block-content:NAME` | Emit the captured contents of the named buffer |
+| `doc-block-toc:NAME` | Emit a nested unordered list of the H1/H2 headers in the named buffer, with GitHub-compatible anchors |
 | `mockup-export:path [mode]` | Extract content to file (mockup mode only) |
 | `mockup-import:path [indent:N\|Ntab]` | Insert file contents (mockup mode only) |
 
@@ -222,6 +225,31 @@ Fragment files included via `<%%include:/path%%>`:
 - No front-matter, no skin — raw fragments only
 - Never written to disk — resolved in memory
 - Cycle detection: if A includes B includes A, generation fails
+
+### Doc-block buffers
+
+`doc-block-begin/end` capture a region of resolved content into a labeled, in-memory buffer instead of emitting it where the markers stand. The buffer can later be replayed verbatim with `doc-block-content` or summarised with `doc-block-toc`:
+
+```
+<%% doc-block-begin: components %%>
+<%% include-notes:btn_grid.js %%>
+<%% include-notes:clock_display.js %%>
+<%% include-notes:credential_password.js %%>
+<%% doc-block-end: components %%>
+
+# Contents
+
+<%% doc-block-toc: components %%>
+
+---
+
+<%% doc-block-content: components %%>
+```
+
+- **Scope**: bucket-global. A buffer captured in one resource-list item is visible from any other item in the same bucket. `ms.docBuffer` is reset at the start of each bucket.
+- **Order independence**: the build embed step runs each bucket twice — a dry pre-pass that only populates buffers (no output written, `doc-block-toc/content` emit nothing), then the regular pass with the buffers fully populated. Capture and emit can therefore live in different items in any order.
+- **TOC format**: `doc-block-toc` walks the captured markdown for `#` and `##` lines, emitting a nested unordered list. Anchors are slugified GitHub-style (lowercase, alphanumerics and hyphens; duplicates get `-1`, `-2`, …). Lines inside fenced code blocks (` ``` ` or `~~~`) are ignored.
+- **Errors**: referencing an unknown buffer with `doc-block-toc` or `doc-block-content` is an error during the regular pass.
 
 ## Mockup processing
 
