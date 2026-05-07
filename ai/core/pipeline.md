@@ -66,8 +66,57 @@ Lines starting with `@` are directives (processed by miniskin, not passed as var
       <var name="title" value="Login" />
     </item>
   </mockup-list>
+  <external>
+    <external-item origin="closure-ui" src="./release/closure_ui.js" dstfile="./src/app_source.js" />
+  </external>
 </miniskin>
 ```
+
+## External / Origin
+
+`<external>` blocks copy files into the project at build time from sources declared in a per-developer registry. Used to keep a sibling project (e.g. a UI library) in its own repo while consuming its built artefact here, without checking the artefact into the consuming repo's history.
+
+### Registry: `miniskin-origin.xml`
+
+Lives at `contentPath` root, **not** committed (each developer points origins at their own local clones). Optional — only required when `<external>` blocks exist.
+
+```xml
+<miniskin>
+  <origin name="closure-ui">
+    <local>C:\HD\F\_sams\closure-ui</local>
+  </origin>
+</miniskin>
+```
+
+`<origin>` attributes:
+
+| Attribute | Description |
+|---|---|
+| `name` | identifier referenced from `<external-item origin="…">` |
+
+`<origin>` children:
+
+| Element | Description |
+|---|---|
+| `<local>` | absolute path to a sibling repo / build output directory on the developer's machine |
+
+Only `<local>` is supported — no fetch from network sources. The MVP exists to keep cross-platform complexity out (TLS, proxies, Windows path quirks, auth); each developer is expected to clone and build the sibling project themselves.
+
+### `<external-item>`
+
+Lives inside `<external>` in any subdirectory `*.miniskin.xml`. Resolved at pipeline step 0.
+
+| Attribute | Description |
+|---|---|
+| `origin` | name of an entry in `miniskin-origin.xml` |
+| `src`    | path inside the origin's `<local>` root |
+| `dstfile`| destination relative to the directory of the declaring XML (same convention as `<item src>`) |
+
+Copy is **mtime+size-aware**: dst is left untouched when it matches the source (size and mtime equal); otherwise it is overwritten and the source mtime is propagated. Hard errors with absolute paths and the declaring XML when:
+
+- the origin name is not in the registry
+- the origin has no `<local>`
+- the source file is missing
 
 Resource lists can be **chained** (multiple at the same level) and **nested** (with `src` for relative path resolution):
 

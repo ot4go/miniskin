@@ -230,9 +230,18 @@ func (ms *Miniskin) ProcessMockupExport() (*Result, error) {
 
 // BuildEmbed collects and processes all resource items across all buckets.
 // Resolves variables, includes, skins, and writes output files.
+// Externals are resolved first so item sources that depend on them exist.
 func (ms *Miniskin) BuildEmbed() (*Result, error) {
 	_, bl, err := ms.init()
 	if err != nil {
+		return nil, err
+	}
+
+	origins, err := ms.loadOrigins()
+	if err != nil {
+		return nil, err
+	}
+	if err := ms.processExternals(bl, origins); err != nil {
 		return nil, err
 	}
 
@@ -291,6 +300,7 @@ func (ms *Miniskin) BuildEmbed() (*Result, error) {
 // --- Run (convenience: export + update + build)
 
 // Run executes the full pipeline:
+//  0. Resolve <external> blocks (copy files from declared origins)
 //  1. Analyze dependencies and check for circular references
 //  2. Process mockup exports (writes extracted files to disk)
 //  3. Update imports (refresh inline content in mockup-import blocks)
@@ -298,6 +308,15 @@ func (ms *Miniskin) BuildEmbed() (*Result, error) {
 func (ms *Miniskin) Run() (*Result, error) {
 	_, bl, err := ms.init()
 	if err != nil {
+		return nil, err
+	}
+
+	// --- Step 0: externals (must run before deps so referenced files exist)
+	origins, err := ms.loadOrigins()
+	if err != nil {
+		return nil, err
+	}
+	if err := ms.processExternals(bl, origins); err != nil {
 		return nil, err
 	}
 

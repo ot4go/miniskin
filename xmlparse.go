@@ -22,6 +22,23 @@ type xmlMiniskin struct {
 	BucketList    *xmlBucketList    `xml:"bucket-list,omitempty"`
 	ResourceLists []xmlResourceList `xml:"resource-list,omitempty"`
 	MockupList    *xmlMockupList    `xml:"mockup-list,omitempty"`
+	Origins       []xmlOrigin       `xml:"origin,omitempty"`
+	External      *xmlExternal      `xml:"external,omitempty"`
+}
+
+type xmlOrigin struct {
+	Name  string `xml:"name,attr"`
+	Local string `xml:"local,omitempty"`
+}
+
+type xmlExternal struct {
+	Items []xmlExternalItem `xml:"external-item"`
+}
+
+type xmlExternalItem struct {
+	Origin  string `xml:"origin,attr"`
+	Src     string `xml:"src,attr"`
+	Dstfile string `xml:"dstfile,attr"`
 }
 
 type xmlMockupList struct {
