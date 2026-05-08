@@ -210,6 +210,30 @@ func TestNestedIncludes(t *testing.T) {
 
 // ---
 
+func TestIncludeStripsBOM(t *testing.T) {
+	dir := t.TempDir()
+
+	// b.html starts with a UTF-8 BOM. When included into a.html, the BOM
+	// must NOT appear in the middle of the parent output.
+	os.WriteFile(filepath.Join(dir, "a.html"), []byte(`[A]<%%include:/b.html%%>[A-end]`), 0644)
+	os.WriteFile(filepath.Join(dir, "b.html"), []byte("\xef\xbb\xbf[B]"), 0644)
+
+	ms := newSilent(dir, dir)
+	result, err := ms.resolvePercent(`<%%include:/a.html%%>`, nil, nil)
+	if err != nil {
+		t.Fatalf("include failed: %v", err)
+	}
+	if strings.Contains(result, "\xef\xbb\xbf") {
+		t.Errorf("BOM leaked into parent output: %q", result)
+	}
+	expected := "[A][B][A-end]"
+	if result != expected {
+		t.Errorf("expected %q, got %q", expected, result)
+	}
+}
+
+// ---
+
 func TestIndirectCycle(t *testing.T) {
 	dir := t.TempDir()
 

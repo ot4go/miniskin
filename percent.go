@@ -1540,7 +1540,7 @@ func (ms *Miniskin) resolveInclude(includePath string, vars map[string]string, c
 	}
 
 	newChain := append(chain, fullPath)
-	resolved, err := ms.resolvePercent(string(data), vars, newChain)
+	resolved, err := ms.resolvePercent(stripBOM(string(data)), vars, newChain)
 	if err != nil {
 		return "", fmt.Errorf("in include %s: %w", fullPath, err)
 	}
@@ -1571,7 +1571,14 @@ func (ms *Miniskin) resolveIncludeNotes(includePath string, chain []string) (str
 		return "", fmt.Errorf("include-notes %s (resolved: %s): %w", includePath, fullPath, err)
 	}
 
-	return extractNotes(string(data)), nil
+	return extractNotes(stripBOM(string(data))), nil
+}
+
+// stripBOM removes a leading UTF-8 BOM (EF BB BF) from s, if present.
+// Applied to included content so a partial saved with BOM does not inject
+// EF BB BF into the middle of the parent file.
+func stripBOM(s string) string {
+	return strings.TrimPrefix(s, "\xef\xbb\xbf")
 }
 
 // extractNotes returns the concatenated bodies of all note: tags in content.
