@@ -3987,6 +3987,50 @@ func TestRunCircularDepsError(t *testing.T) {
 
 // ---
 
+// Regression: with a relative contentPath (the CLI default "-content ."),
+// filepath.Rel(contentPath, absoluteSrc) used to fail with its error
+// discarded, collapsing every dependency edge into Source "" and silently
+// disabling cycle detection.
+func TestRunCircularDepsErrorRelativeContentPath(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app"), 0755)
+
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "app.miniskin.xml"), []byte(`<miniskin>
+	<mockup-list>
+		<item src="a.html" />
+		<item src="b.html" />
+	</mockup-list>
+</miniskin>`), 0644)
+
+	// a exports X, imports Y
+	os.WriteFile(filepath.Join(dir, "app", "a.html"), []byte(`
+<!--%%mockup-export:/x.css%%-->x<!--%%end%%-->
+<!--%%mockup-import:/y.css%%-->`), 0644)
+
+	// b exports Y, imports X → circular
+	os.WriteFile(filepath.Join(dir, "app", "b.html"), []byte(`
+<!--%%mockup-export:/y.css%%-->y<!--%%end%%-->
+<!--%%mockup-import:/x.css%%-->`), 0644)
+
+	t.Chdir(dir)
+	ms := newSilent(".", ".")
+	_, err := ms.Run()
+	if err == nil {
+		t.Fatal("expected circular dependency error with relative contentPath")
+	}
+	if !strings.Contains(err.Error(), "circular") {
+		t.Errorf("error should mention circular deps: %v", err)
+	}
+}
+
+// ---
+
 func TestMatchesMuxPattern(t *testing.T) {
 	tests := []struct {
 		file, pattern string

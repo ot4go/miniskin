@@ -105,8 +105,11 @@ type Miniskin struct {
 // contentPath: root directory where source files live.
 // modulesPath: root directory where Go modules live.
 func MiniskinNew(contentPath, modulesPath string) *Miniskin {
+	// contentPath must be absolute: source identifiers in the dependency
+	// graph are computed with filepath.Rel(contentPath, absoluteSrc),
+	// which fails for a relative base (e.g. the CLI default "-content .").
 	return &Miniskin{
-		contentPath: contentPath,
+		contentPath: absPath(contentPath),
 		modulesPath: modulesPath,
 		Output:      os.Stdout,
 		Verbosity:   VerbosityNormal,
@@ -420,7 +423,10 @@ func (ms *Miniskin) analyzeDepsFromBuckets(bl BucketList) (*DepMap, error) {
 					return fmt.Errorf("reading %s: %w", srcPath, err)
 				}
 				exports, imports := scanExportsImports(string(data))
-				relSrc, _ := filepath.Rel(ms.contentPath, srcPath)
+				relSrc, err := filepath.Rel(ms.contentPath, srcPath)
+				if err != nil {
+					return fmt.Errorf("computing path of %s relative to content root %s: %w", srcPath, ms.contentPath, err)
+				}
 				relSrc = filepath.ToSlash(relSrc)
 				for _, e := range exports {
 					dm.Edges = append(dm.Edges, DepEdge{Source: relSrc, Target: e, Kind: "export"})
