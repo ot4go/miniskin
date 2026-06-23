@@ -169,10 +169,10 @@ func cleanImports(content string) string {
 // with the current content of the referenced files.
 //
 // Single tags:  <!--%%mockup-import:/path%%-->
-//            →  <!--%%mockup-import:/path%%-->\ncontent\n<!--%%end%%-->
+//            →  <!--%%mockup-import:/path%%-->\ncontent\n<!--%%end-mockup-import%%-->
 //
-// Block tags:   <!--%%mockup-import:/path%%-->old<!--%%end%%-->
-//            →  <!--%%mockup-import:/path%%-->\nnew\n<!--%%end%%-->
+// Block tags:   <!--%%mockup-import:/path%%-->old<!--%%end-mockup-import%%-->
+//            →  <!--%%mockup-import:/path%%-->\nnew\n<!--%%end-mockup-import%%-->
 func refreshImports(content, contentPath, fileDir string) (string, error) {
 	tags := findTags(content)
 	if len(tags) == 0 {
@@ -240,7 +240,7 @@ func refreshImports(content, contentPath, fileDir string) (string, error) {
 			i += 2
 		} else {
 			// Single tag → promote to block
-			out.WriteString("<!--%%end%%-->\n")
+			out.WriteString("<!--%%end-mockup-import%%-->\n")
 			pos = endOfLine
 			i++
 		}

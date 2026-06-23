@@ -24,7 +24,7 @@ The JS-comment wrapper (`/*<%`, `%>*/`) is recognised at apertura and closure in
 | `mockup-export:path [append\|overwrite] [ltrim\|rtrim\|trim]` | Extract content to file (mockup mode only). `ltrim`: dedent, `rtrim`: strip trailing whitespace, `trim`: both |
 | `end-mockup-export` / `end` | Close mockup-export block |
 | `mockup-import:path [indent:N\|Ntab]` | Insert file contents (mockup mode only). `indent:4`: 4 spaces per line, `indent:2tab`: 2 tabs per line. Value accepts quotes: `indent:"8tab"`, `indent="8tab"` |
-| `end-mockup-import` / `end` | Close mockup-import block |
+| `end-mockup-import` | Close mockup-import block (mandatory — generic `end` is not valid here) |
 | `include:path` | Include file (double tags only, resolved recursively). Absolute (`/path`) relative to bucket src; relative to current file otherwise. In line-mode: entire line containing the tag is removed (including surrounding comments like `/* */`) |
 | `include-notes:path` | Include file (double tags only). Returns only the bodies of `note:` tags found in the file, dedented and joined by a blank line. Used to assemble per-component documentation into a single Markdown file. Same path resolution as `include:` |
 | `doc-block-begin:NAME` / `doc-block-end:NAME` | Capture content between the markers into a labeled, in-memory buffer (`ms.docBuffer[NAME]`). The captured region is **not** emitted in place — only stored. After capture, the buffer can be replayed elsewhere via `doc-block-content` or summarised via `doc-block-toc`. Buffer scope is bucket-global: a buffer captured in one resource-list item is visible from other items in the same bucket |

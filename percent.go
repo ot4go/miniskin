@@ -1131,6 +1131,9 @@ func (ms *Miniskin) dispatchSingleTag(rawTag string, vars map[string]string, blo
 	}
 	if tagStr == "end" || tagStr == "end-if" || tagStr == "end-mockup-export" || tagStr == "end-mockup-import" {
 		if len(*blockStack) == 0 {
+			if ms.importMarkOut == out {
+				return nil, fmt.Errorf("<%s%s%%> cannot close a mockup-import block, use <%send-mockup-import%%>", "%", tagStr, "%")
+			}
 			return nil, fmt.Errorf("<%send%%> without matching block", "%")
 		}
 		top := (*blockStack)[len(*blockStack)-1]

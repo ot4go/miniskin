@@ -105,9 +105,6 @@ type Miniskin struct {
 // contentPath: root directory where source files live.
 // modulesPath: root directory where Go modules live.
 func MiniskinNew(contentPath, modulesPath string) *Miniskin {
-	// contentPath must be absolute: source identifiers in the dependency
-	// graph are computed with filepath.Rel(contentPath, absoluteSrc),
-	// which fails for a relative base (e.g. the CLI default "-content .").
 	return &Miniskin{
 		contentPath: absPath(contentPath),
 		modulesPath: modulesPath,

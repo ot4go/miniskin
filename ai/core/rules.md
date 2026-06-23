@@ -36,8 +36,8 @@
 - Conditionals in mockup mode check existence only (defined = true)
 - **Inside `mockup-export` blocks**: all conditionals (`if:`, `else`, `endif`, etc.) pass through literally to the export buffer — nothing is excluded. FSM block stack stays balanced for correct nesting.
 - `mockup=1` is auto-injected in mockup mode
-- `end` is universal closer (works for if, mockup-export, mockup-import blocks)
-- Specific closers: `end-if` (if only), `end-mockup-export` (export only), `end-mockup-import` (import only)
+- `end` is universal closer for if and mockup-export blocks; mockup-import blocks MUST close with `end-mockup-import` (generic `end` does not truncate the inline content and errors when detectable)
+- Specific closers: `end-if` (if only), `end-mockup-export` (export only), `end-mockup-import` (import, mandatory)
 - `TransformNegative` replaces export...end blocks with import...end-mockup-import blocks
 - Resource lists can be chained (multiple at the same level) and nested (with `src` for relative path resolution)
 - Skin directory cascades: `<miniskin>` → `<bucket>` → `<resource-list>` → nested `<resource-list>` (default: `_skin`)

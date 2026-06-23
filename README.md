@@ -129,10 +129,10 @@ Position of `<escape>` elements within a block is irrelevant. Child rules overri
 | `elseif-not:var` | Negated elseif |
 | `else` | Fallback branch |
 | `endif` | Close conditional block |
-| `end` | Universal closer (works for if, mockup-export, mockup-import) |
+| `end` | Universal closer (works for if and mockup-export) |
 | `end-if` | Close if block (specific alias) |
 | `end-mockup-export` | Close mockup-export block (specific alias) |
-| `end-mockup-import` | Close mockup-import block (specific alias) |
+| `end-mockup-import` | Close mockup-import block (mandatory — generic `end` is not valid here) |
 | `note:text` | Discarded silently (comment) |
 | `echo:text` | Emit text (uses default escape) |
 | `include:path` | Include file contents (double tags only, resolved recursively) |

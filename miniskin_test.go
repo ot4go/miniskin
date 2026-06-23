@@ -2707,6 +2707,40 @@ func TestEndMockupImportInRefreshImports(t *testing.T) {
 
 // ---
 
+func TestGenericEndCannotCloseMockupImport(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "a.css"), []byte("FRESH"), 0644)
+
+	ms := newMockup(dir, dir)
+	input := "<!--%%mockup-import:/a.css%%-->\nSTALE\n<!--%%end%%-->"
+	_, err := ms.resolvePercent(input, map[string]string{"mockup": "1"}, nil)
+	if err == nil {
+		t.Fatal("expected error for generic end closing a mockup-import block")
+	}
+	if !strings.Contains(err.Error(), "end-mockup-import") {
+		t.Errorf("error should suggest end-mockup-import: %v", err)
+	}
+}
+
+// ---
+
+func TestSingleImportInsideIfClosedWithEnd(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "a.css"), []byte("FRESH"), 0644)
+
+	ms := newMockup(dir, dir)
+	input := "<!--%%if:mockup%%-->\n<!--%%mockup-import:/a.css%%-->\nkeep\n<!--%%end%%-->\ntail"
+	result, err := ms.resolvePercent(input, map[string]string{"mockup": "1"}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, "FRESH") || !strings.Contains(result, "keep") || !strings.Contains(result, "tail") {
+		t.Errorf("end should close the if and keep all content: %q", result)
+	}
+}
+
+// ---
+
 func TestTransformNegativeEmitsEndMockupImport(t *testing.T) {
 	input := `before
 <!--%%mockup-export:/css/a.css%%-->
@@ -3717,8 +3751,8 @@ after`
 	if !strings.Contains(result, ".a { color: red; }") {
 		t.Errorf("should contain file content: %q", result)
 	}
-	if !strings.Contains(result, "<!--%%end%%-->") {
-		t.Errorf("should add end tag: %q", result)
+	if !strings.Contains(result, "<!--%%end-mockup-import%%-->") {
+		t.Errorf("should add end-mockup-import tag: %q", result)
 	}
 	if !strings.Contains(result, "before") || !strings.Contains(result, "after") {
 		t.Errorf("should preserve surrounding content: %q", result)
@@ -3773,8 +3807,8 @@ end`
 	if !strings.Contains(result, "BBB") {
 		t.Errorf("should contain b.js content: %q", result)
 	}
-	if strings.Count(result, "<!--%%end%%-->") != 2 {
-		t.Errorf("should have 2 end tags: %q", result)
+	if strings.Count(result, "<!--%%end-mockup-import%%-->") != 2 {
+		t.Errorf("should have 2 end-mockup-import tags: %q", result)
 	}
 }
 
@@ -3941,8 +3975,19 @@ func TestRunWithUpdateImports(t *testing.T) {
 	if !strings.Contains(content, ".body { margin: 0; }") {
 		t.Errorf("mockup_b should contain imported CSS:\n%s", content)
 	}
-	if !strings.Contains(content, "<!--%%end%%-->") {
-		t.Errorf("mockup_b should have end tag after import:\n%s", content)
+	if !strings.Contains(content, "<!--%%end-mockup-import%%-->") {
+		t.Errorf("mockup_b should have end-mockup-import tag after import:\n%s", content)
+	}
+
+	// Second run over the promoted block must succeed and stay stable
+	ms2 := newSilent(dir, dir)
+	_, err = ms2.Run()
+	if err != nil {
+		t.Fatalf("second Run failed: %v", err)
+	}
+	data2, _ := os.ReadFile(filepath.Join(dir, "app", "mockup_b.html"))
+	if string(data2) != content {
+		t.Errorf("mockup_b changed on second run:\n  first:  %q\n  second: %q", content, string(data2))
 	}
 }
 
@@ -3987,10 +4032,6 @@ func TestRunCircularDepsError(t *testing.T) {
 
 // ---
 
-// Regression: with a relative contentPath (the CLI default "-content ."),
-// filepath.Rel(contentPath, absoluteSrc) used to fail with its error
-// discarded, collapsing every dependency edge into Source "" and silently
-// disabling cycle detection.
 func TestRunCircularDepsErrorRelativeContentPath(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, "app"), 0755)
