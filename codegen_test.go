@@ -1,6 +1,8 @@
 package miniskin
 
 import (
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
@@ -365,5 +367,91 @@ func TestBucketTemplateHasFlag(t *testing.T) {
 	}
 	if !strings.Contains(content, "/index") {
 		t.Error("expected /index route in parsedTemplates")
+	}
+}
+
+// --- response (canned HTTP response) items in the mux template
+
+func TestGenerateBucketFileResponseMux(t *testing.T) {
+	dir := t.TempDir()
+	modDir := t.TempDir()
+
+	result := &Result{
+		BucketList: BucketList{
+			Filename: "generated_embed.go",
+			Module:   "content",
+			Import:   "example.com/app/content",
+		},
+		Buckets: []BucketResult{
+			{
+				Bucket: Bucket{Dst: "gen.go", ModuleName: "app", Template: "miniskin::mux"},
+				Items: []Item{
+					{Type: "static", File: "style.css", EmbedPath: "app/style.css", Key: "/assets/style.css"},
+					{Type: "response", File: "redir.http", EmbedPath: "app/redir.http", Key: "/old"},
+				},
+			},
+		},
+	}
+
+	cg := CodegenNew(dir, modDir)
+	if err := cg.GenerateBucketFile(result, result.Buckets[0]); err != nil {
+		t.Fatalf("GenerateBucketFile failed: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(modDir, "gen.go"))
+	if err != nil {
+		t.Fatalf("generated file not found: %v", err)
+	}
+	content := string(data)
+
+	if !strings.Contains(content, `serveResponse(mux, "/old", content.AppRedirHttp)`) {
+		t.Error("missing serveResponse registration for response item")
+	}
+	if !strings.Contains(content, "func serveResponse(") {
+		t.Error("missing serveResponse helper")
+	}
+	if !strings.Contains(content, "func parseResponse(") {
+		t.Error("missing parseResponse helper")
+	}
+	if !strings.Contains(content, `"strconv"`) || !strings.Contains(content, `"strings"`) {
+		t.Error("missing strconv/strings imports needed by parseResponse")
+	}
+	// a response is not a template route: it must not leak into tmplHandlers/Templates
+	if strings.Contains(content, `tmplHandlers["/old"]`) {
+		t.Error("response item should not be registered as a template route")
+	}
+
+	// the generated file must be valid Go
+	if _, err := parser.ParseFile(token.NewFileSet(), "gen.go", content, parser.AllErrors); err != nil {
+		t.Fatalf("generated code is not valid Go: %v\n%s", err, content)
+	}
+}
+
+// A bucket with no response items must not emit the serveResponse/parseResponse
+// helpers nor the strconv import they need.
+func TestGenerateBucketFileNoResponseHelpers(t *testing.T) {
+	dir := t.TempDir()
+	modDir := t.TempDir()
+
+	result := makeCodegenTestResult()
+	result.Buckets[0].Bucket.Dst = "gen.go"
+	result.Buckets[0].Bucket.Template = "miniskin::mux"
+
+	cg := CodegenNew(dir, modDir)
+	if err := cg.GenerateBucketFile(result, result.Buckets[0]); err != nil {
+		t.Fatalf("GenerateBucketFile failed: %v", err)
+	}
+
+	data, _ := os.ReadFile(filepath.Join(modDir, "gen.go"))
+	content := string(data)
+
+	if strings.Contains(content, "serveResponse") {
+		t.Error("serveResponse helper emitted without any response item")
+	}
+	if strings.Contains(content, `"strconv"`) {
+		t.Error("strconv imported without any response item")
+	}
+	if _, err := parser.ParseFile(token.NewFileSet(), "gen.go", content, parser.AllErrors); err != nil {
+		t.Fatalf("generated code is not valid Go: %v\n%s", err, content)
 	}
 }

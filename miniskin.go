@@ -540,7 +540,10 @@ func (ms *Miniskin) processItem(item *Item) error {
 
 	// Apply directives
 	if level, ok := directives["minify"]; ok {
-		body = applyMinify(body, level)
+		body, err = applyMinify(body, level, filepath.Ext(item.File))
+		if err != nil {
+			return fmt.Errorf("minifying %s: %w", item.Src, err)
+		}
 	}
 	if ending, ok := directives["eol"]; ok {
 		body = applyLineEnding(body, ending)

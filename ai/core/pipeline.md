@@ -19,7 +19,7 @@ Lines starting with `@` are directives (processed by miniskin, not passed as var
 
 | Directive | Values | Description |
 |---|---|---|
-| `@minify` | `0` (default), `1` | Level 1: trim lines and remove empty lines |
+| `@minify` | `0` (default), `1` | Minify output via tdewolff/minify, selected by output extension (html/css/js/json/svg/xml). Other types pass through unchanged. |
 | `@eol` | `lf`, `crlf`, `cr` | Convert line endings (default: no conversion) |
 
 ## XML structure

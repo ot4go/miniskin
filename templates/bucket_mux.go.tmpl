@@ -6,9 +6,11 @@ package {{.Bucket.ModuleName}}
 {{- $hasTplRoutes := false -}}
 {{- $hasAssets := false -}}
 {{- $hasParse := false -}}
+{{- $hasResponse := false -}}
 {{- range .Items -}}
 {{- if and (hasFlag . "static") (not (hasFlag . "nomux")) -}}{{- $hasRoutes = true -}}{{- end -}}
 {{- if and (hasFlag . "html-template") (not (hasFlag . "nomux")) -}}{{- $hasRoutes = true -}}{{- $hasTplRoutes = true -}}{{- end -}}
+{{- if and (hasFlag . "response") (not (hasFlag . "nomux")) -}}{{- $hasRoutes = true -}}{{- $hasResponse = true -}}{{- end -}}
 {{- if hasFlag . "nomux" -}}{{- $hasAssets = true -}}{{- end -}}
 {{- if hasFlag . "parse" -}}{{- $hasParse = true -}}{{- end -}}
 {{- end}}
@@ -19,6 +21,10 @@ import (
 {{- end}}
 {{- if $hasRoutes}}
 	"net/http"
+{{- end}}
+{{- if $hasResponse}}
+	"strconv"
+	"strings"
 {{- end}}
 
 	"{{embedImport}}"
@@ -31,6 +37,11 @@ func RegisterEmbededRoutes(mux *http.ServeMux, tmplHandlers map[string]http.Hand
 {{- range .Items}}
 {{- if and (hasFlag . "static") (not (hasFlag . "nomux"))}}
 	serveStatic(mux, "{{.RouteURL}}", {{embedPkg}}.{{embedVar .}}, "{{mimeType .}}")
+{{- end}}
+{{- end}}
+{{- range .Items}}
+{{- if and (hasFlag . "response") (not (hasFlag . "nomux"))}}
+	serveResponse(mux, "{{.RouteURL}}", {{embedPkg}}.{{embedVar .}})
 {{- end}}
 {{- end}}
 {{- range .Items}}
@@ -131,5 +142,63 @@ func serveStatic(mux *http.ServeMux, route string, data []byte, contentType stri
 		w.Header().Set("Content-Type", contentType)
 		w.Write(data)
 	})
+}
+{{- end}}
+{{- if $hasResponse}}
+
+// serveResponse registers a route that replays a canned HTTP response, embedded
+// as a raw .http file: a status line, optional headers, a blank line, and an
+// optional body. Like serveStatic, the bytes are fixed at build time; the
+// response is parsed once, at registration. Used for redirects (3xx + Location)
+// and bare status responses (404, 410, ...).
+func serveResponse(mux *http.ServeMux, route string, raw []byte) {
+	status, header, body := parseResponse(raw)
+	mux.HandleFunc(route, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != route {
+			http.NotFound(w, r)
+			return
+		}
+		for k, vs := range header {
+			for _, v := range vs {
+				w.Header().Add(k, v)
+			}
+		}
+		w.WriteHeader(status)
+		if len(body) > 0 {
+			w.Write(body)
+		}
+	})
+}
+
+// parseResponse splits a raw .http response into status code, headers, and body.
+// First line: "<code> <reason>" (the reason phrase is ignored — net/http
+// derives it from the code). Header lines run until the first blank line; the
+// rest is the body. Defaults to 200 when no numeric code is found.
+func parseResponse(raw []byte) (int, http.Header, []byte) {
+	status := http.StatusOK
+	header := make(http.Header)
+
+	text := string(raw)
+	var head, body string
+	if i := strings.Index(text, "\r\n\r\n"); i >= 0 {
+		head, body = text[:i], text[i+4:]
+	} else if i := strings.Index(text, "\n\n"); i >= 0 {
+		head, body = text[:i], text[i+2:]
+	} else {
+		head = text
+	}
+
+	lines := strings.Split(strings.ReplaceAll(head, "\r\n", "\n"), "\n")
+	if fields := strings.Fields(lines[0]); len(fields) > 0 {
+		if code, err := strconv.Atoi(fields[0]); err == nil {
+			status = code
+		}
+	}
+	for _, line := range lines[1:] {
+		if k, v, ok := strings.Cut(line, ":"); ok {
+			header.Add(strings.TrimSpace(k), strings.TrimSpace(v))
+		}
+	}
+	return status, header, []byte(body)
 }
 {{- end}}

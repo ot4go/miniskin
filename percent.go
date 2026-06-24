@@ -6,6 +6,14 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/tdewolff/minify/v2"
+	"github.com/tdewolff/minify/v2/css"
+	"github.com/tdewolff/minify/v2/html"
+	"github.com/tdewolff/minify/v2/js"
+	"github.com/tdewolff/minify/v2/json"
+	"github.com/tdewolff/minify/v2/svg"
+	"github.com/tdewolff/minify/v2/xml"
 )
 
 type pctState int
@@ -872,22 +880,57 @@ func isMockupImport(tagStr string) (imf importFlags, ok bool) {
 	return imf, true
 }
 
-// applyMinify applies minification to content.
-// Level "1": trim lines and remove empty lines.
-func applyMinify(content string, level string) string {
+// minifier is the shared, well-tested minifier from github.com/tdewolff/minify.
+// It is safe for concurrent use after this initial setup.
+var minifier = func() *minify.M {
+	m := minify.New()
+	m.AddFunc("text/html", html.Minify)
+	m.AddFunc("text/css", css.Minify)
+	m.AddFunc("application/javascript", js.Minify)
+	m.AddFunc("application/json", json.Minify)
+	m.AddFunc("image/svg+xml", svg.Minify)
+	m.AddFunc("text/xml", xml.Minify)
+	return m
+}()
+
+// minifyMediaType maps an output file extension (including the leading dot) to
+// the media type understood by the minifier, or "" when the type is not
+// minifiable (in which case the content is left untouched).
+func minifyMediaType(ext string) string {
+	switch strings.ToLower(ext) {
+	case ".html", ".htm":
+		return "text/html"
+	case ".css":
+		return "text/css"
+	case ".js", ".mjs", ".cjs":
+		return "application/javascript"
+	case ".json":
+		return "application/json"
+	case ".svg":
+		return "image/svg+xml"
+	case ".xml":
+		return "text/xml"
+	}
+	return ""
+}
+
+// applyMinify minifies content using github.com/tdewolff/minify, selecting the
+// minifier from the output file extension ext. Level "" or "0" is a no-op, as is
+// an unminifiable type. On any minification error the original content is
+// returned together with the error so the caller never emits corrupted output.
+func applyMinify(content string, level string, ext string) (string, error) {
 	if level == "" || level == "0" {
-		return content
+		return content, nil
 	}
-	// Level 1: alltrim lines + remove empty lines
-	lines := strings.Split(content, "\n")
-	var result []string
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			result = append(result, line)
-		}
+	mediatype := minifyMediaType(ext)
+	if mediatype == "" {
+		return content, nil
 	}
-	return strings.Join(result, "\n") + "\n"
+	out, err := minifier.String(mediatype, content)
+	if err != nil {
+		return content, err
+	}
+	return out, nil
 }
 
 // applyLineEnding converts line endings.

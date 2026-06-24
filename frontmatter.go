@@ -7,7 +7,7 @@ import (
 
 // parseFrontMatter splits a file into front-matter key-value pairs, directives, and body content.
 // Front-matter is delimited by --- lines. Keys and values are separated by :.
-// Lines starting with @ are directives (e.g. @minify, @ltrim).
+// Lines starting with @ are directives (e.g. @minify, @eol, @ltrim).
 // Returns nil vars and the full content if no front-matter is present.
 func parseFrontMatter(content string) (vars map[string]string, directives map[string]string, body string, err error) {
 	content = strings.ReplaceAll(content, "\r\n", "\n")
