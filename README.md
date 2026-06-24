@@ -630,7 +630,7 @@ Each item in a resource list describes a content file:
 
 - `file` — output filename (what gets embedded)
 - `src` — source filename (optional; if present, item is processed through the template engine)
-- `type` — comma-separated flags: `static`, `html-template`, `nomux`, `parse`, etc.
+- `type` — comma-separated flags: `static`, `html-template`, `response`, `nomux`, `parse`, etc.
 - `key` — logical key for asset lookup
 - `url` / `alt-url-abs` — URL routing attributes
 - `escape` — override default escape type for this item (`html`, `js`, `url`, `sql`, etc.)
@@ -784,6 +784,26 @@ var Templates map[string][]byte
 ```
 
 `RegisterRoutes` registers static files with exact-path matching and wires template routes via the `tmplHandlers` map.
+
+Items flagged `response` are registered via `serveResponse`, which replays a
+canned HTTP response embedded as a raw `.http` file (status line, optional
+headers, blank line, optional body). Use it for redirects (`3xx` + `Location`),
+bare statuses (`404`, `410`, …), and static error pages — the route comes from
+`key`:
+
+```xml
+<item type="response" file="old-page.http" key="/old-page/" />
+```
+
+```
+301 Moved Permanently
+Location: https://www.example.com/products
+
+```
+
+The bytes are fixed at build time, like `static`; declared headers are sent
+verbatim (net/http still adds `Date`/`Content-Length` and sniffs `Content-Type`
+when omitted). Anything dynamic belongs in your own `mux.HandleFunc`.
 
 Usage in XML:
 

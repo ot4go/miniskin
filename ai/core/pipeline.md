@@ -137,15 +137,57 @@ Nested resource lists inherit `skin-dir`, `mux-include`, `mux-exclude`, `templat
 
 - `file` — output filename (what gets embedded)
 - `src` — source filename (if present, processed through template engine)
-- `type` — comma-separated flags: `static`, `html-template`, `nomux`, `parse`
+- `type` — comma-separated flags: `static`, `html-template`, `response`, `nomux`, `parse`
 - `key` — logical key for asset lookup
 - `url` / `alt-url-abs` — URL routing attributes
 - `escape` — override default escape type for this item (`html`, `js`, `url`, `sql`, etc.)
 - `template-function-map` — Go expression returning `template.FuncMap`; injected via `.Funcs(expr)` before `.Parse()` for `parse` items (cascades from `<bucket>` → `<resource-list>` → `<item>`)
 
+## Response items (`type="response"`)
+
+A `response` item serves a **canned HTTP response** instead of file content: a
+redirect (3xx + `Location`), a bare status (404, 410, …), or an error page with a
+static body. The item points to a raw `.http` file — a status line, optional
+headers, a blank line, and an optional body:
+
+```
+301 Moved Permanently
+Location: https://www.example.com/products
+
+```
+
+```
+404 Not Found
+Content-Type: text/html; charset=utf-8
+Cache-Control: no-store
+
+<h1>Not found</h1>
+```
+
+Declared like any other item; the route comes from `key` (use it — without `key`
+the route would be the `.http` filename):
+
+```xml
+<item type="response" file="old-page.http" key="/old-page/" />
+```
+
+Mechanics (mux template only):
+
+- The `.http` is embedded exactly like a `static` asset — same `//go:embed`, same
+  on-disk validation. No separate build step, no Go core code.
+- Generated code calls `serveResponse(mux, route, embeddedBytes)`. The response is
+  parsed **once, at registration**: first line → status code (the reason phrase is
+  ignored, net/http derives it from the code); header lines until the blank line →
+  response headers (any header, repeats preserved via `Add`); the rest → body.
+- Bytes are fixed at build time (like `static`). For per-environment values, use a
+  build-time percent tag with `src` (e.g. `Location: https://<%%domain%%>/x`).
+  Anything dynamic/per-request belongs in your own `mux.HandleFunc`, not here.
+- Headers you declare are sent verbatim; net/http still adds framing headers
+  (`Date`, `Content-Length`) and sniffs `Content-Type` only when you omit it.
+
 ## Built-in templates
 
 - `miniskin::default` — generic `Asset` type with `Get()`, `RegisterRoutes()`, `GetParsedTemplate()`
-- `miniskin::mux` — `RegisterRoutes(mux *http.ServeMux, tmplHandlers)` with exact-path matching
+- `miniskin::mux` — `RegisterRoutes(mux *http.ServeMux, tmplHandlers)` with exact-path matching; `serveResponse` for `response` items
 
 Custom templates via file path: `template="my_template.tmpl"`
