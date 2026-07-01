@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"text/template"
 )
@@ -157,6 +158,8 @@ func (cg *Codegen) GenerateBucketFile(result *Result, br BucketResult) error {
 		"embedImport": func() string {
 			return result.BucketList.Import
 		},
+		"blobBase":  blobBaseName,
+		"attachHas": attachHas,
 	}
 
 	tmpl, err := template.New("bucket").Funcs(funcMap).Parse(tmplSrc)
@@ -168,10 +171,12 @@ func (cg *Codegen) GenerateBucketFile(result *Result, br BucketResult) error {
 		BucketList BucketList
 		Bucket     Bucket
 		Items      []Item
+		Blobs      []BlobIndex
 	}{
 		BucketList: result.BucketList,
 		Bucket:     br.Bucket,
 		Items:      br.Items,
+		Blobs:      br.Blobs,
 	}
 
 	projectRoot := cg.modulesPath
@@ -216,6 +221,28 @@ func resolveTemplate(name string, named map[string]string, fallback string, cont
 
 // --- helpers
 
+// attachHas reports whether a blob-attach expression includes the given mode
+// (mux/assets/templates). A blob may carry several, so the muxblob template tests
+// each mode independently rather than switching on a single value.
+func attachHas(attach, mode string) bool {
+	return slices.Contains(splitAttach(attach), mode)
+}
+
+// blobBaseName derives the exported camel base from a blob file name, e.g.
+// "prod-img.blob" -> "ProdImgBlob" (used by miniskin::muxex for <Base>ID/<Base>File).
+func blobBaseName(name string) string {
+	base := strings.TrimSuffix(name, filepath.Ext(name))
+	parts := strings.FieldsFunc(base, func(r rune) bool {
+		return r == '-' || r == '_' || r == '.' || r == ' '
+	})
+	var sb strings.Builder
+	for _, p := range parts {
+		sb.WriteString(strings.ToUpper(p[:1]) + p[1:])
+	}
+	sb.WriteString("Blob")
+	return sb.String()
+}
+
 func embedVarName(relPath string) string {
 	dir := filepath.ToSlash(filepath.Dir(relPath))
 	base := filepath.Base(relPath)
@@ -232,7 +259,10 @@ func embedVarName(relPath string) string {
 	parts = append(parts, sanitizePart(name))
 	parts = append(parts, sanitizeExt(ext))
 
-	return strings.Join(parts, "")
+	// Constant "F" prefix: guarantees every embed var starts with an uppercase
+	// letter, so it is always an exported, valid Go identifier — even when the
+	// path part begins with "_" (ToUpper leaves it unexported) or a digit.
+	return "F" + strings.Join(parts, "")
 }
 
 func sanitizePart(s string) string {

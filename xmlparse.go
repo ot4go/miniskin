@@ -72,6 +72,7 @@ type xmlBucketList struct {
 	Import      string      `xml:"import,attr,omitempty"`
 	Template    string      `xml:"template,attr,omitempty"`
 	ProjectRoot string      `xml:"project-root,attr,omitempty"`
+	BlobOut     string      `xml:"blob-out,attr,omitempty"`
 	MuxInclude  string      `xml:"mux-include,attr,omitempty"`
 	MuxExclude  string      `xml:"mux-exclude,attr,omitempty"`
 	Omit        string      `xml:"omit,attr,omitempty"`
@@ -98,6 +99,9 @@ type xmlResourceList struct {
 	Src                 string             `xml:"src,attr,omitempty"`
 	URLBase             string             `xml:"urlbase,attr,omitempty"`
 	SkinDir             string             `xml:"skin-dir,attr,omitempty"`
+	BlobName            string             `xml:"blob-name,attr,omitempty"`
+	PreserveBlobID      string             `xml:"preserve-blob-if-id,attr,omitempty"`
+	BlobAttach          string             `xml:"blob-attach,attr,omitempty"`
 	MuxInclude          string             `xml:"mux-include,attr,omitempty"`
 	MuxExclude          string             `xml:"mux-exclude,attr,omitempty"`
 	TemplateFunctionMap string             `xml:"template-function-map,attr,omitempty"`
@@ -126,6 +130,7 @@ type BucketList struct {
 	Import      string
 	Template    string // custom template file for embed generation
 	ProjectRoot string // project root relative to contentPath (for resolving dst)
+	BlobOut     string // output dir for .blob files (relative to project-root), default "blob"
 	Omit        string // comma/space-separated codegen outputs to skip ("embed", "module")
 	Buckets     []Bucket
 }
@@ -163,8 +168,11 @@ type Item struct {
 	AltURL    string
 	Key       string
 	Index     int    // position in the global embed list
-	EmbedPath string // relative path for go:embed, computed during processing
-	XMLSrc    string // absolute path of the .miniskin.xml that declared this item
+	EmbedPath    string // relative path for go:embed, computed during processing
+	BlobName       string // if set, item is packed into this .blob instead of embedded
+	PreserveBlobID string // preserve-blob-if-id: trust the existing blob iff its guid equals this
+	BlobAttach     string // blob-attach: which exe structures to wire the blob into (assets/mux/templates/*)
+	XMLSrc       string // absolute path of the .miniskin.xml that declared this item
 	XMLLine   int    // line number in XMLSrc where this item is declared
 	TemplateFunctionMap string // cascaded expression for template.FuncMap
 	urlBase     string
@@ -313,6 +321,7 @@ func parseBucketList(xbl *xmlBucketList, defaultSkinDir string, parentMuxInclude
 		Import:      xbl.Import,
 		Template:    xbl.Template,
 		ProjectRoot: xbl.ProjectRoot,
+		BlobOut:     xbl.BlobOut,
 		Omit:        xbl.Omit,
 		Buckets:     make([]Bucket, len(xbl.Buckets)),
 	}
@@ -347,7 +356,7 @@ func parseGlobals(vars []xmlVar) map[string]string {
 	return m
 }
 
-func parseResourceList(xrl *xmlResourceList, dir string, xmlFile string, xmlData []byte, defaultSkinDir string, parentMuxInclude, parentMuxExclude string, parentEscapeRules []xmlEscape, parentTemplateFunctionMap string) []Item {
+func parseResourceList(xrl *xmlResourceList, dir string, xmlFile string, xmlData []byte, defaultSkinDir string, parentMuxInclude, parentMuxExclude string, parentEscapeRules []xmlEscape, parentTemplateFunctionMap, parentBlobName, parentPreserveBlob, parentBlobAttach string) []Item {
 	// Resolve dir: if this resource-list has a src, adjust dir
 	if xrl.Src != "" {
 		dir = filepath.Join(dir, xrl.Src)
@@ -362,6 +371,9 @@ func parseResourceList(xrl *xmlResourceList, dir string, xmlFile string, xmlData
 	rlExclude := cascadeMux(parentMuxExclude, xrl.MuxExclude)
 	rlEscapes := cascadeEscapeRules(parentEscapeRules, xrl.Escapes)
 	rlTemplateFunctionMap := cascadeMux(parentTemplateFunctionMap, xrl.TemplateFunctionMap)
+	rlBlobName := cascadeMux(parentBlobName, xrl.BlobName)
+	rlPreserveBlobID := cascadeMux(parentPreserveBlob, xrl.PreserveBlobID)
+	rlBlobAttach := cascadeMux(parentBlobAttach, xrl.BlobAttach)
 
 	var items []Item
 	for _, xi := range xrl.Items {
@@ -381,6 +393,9 @@ func parseResourceList(xrl *xmlResourceList, dir string, xmlFile string, xmlData
 			URL:                 xi.URL,
 			AltURL:              xi.AltURL,
 			Key:                 xi.Key,
+			BlobName:            rlBlobName,
+			PreserveBlobID:      rlPreserveBlobID,
+			BlobAttach:          rlBlobAttach,
 			XMLSrc:              xmlFile,
 			XMLLine:             findItemLine(xmlData, xi.File),
 			TemplateFunctionMap: cascadeMux(rlTemplateFunctionMap, xi.TemplateFunctionMap),
@@ -394,7 +409,7 @@ func parseResourceList(xrl *xmlResourceList, dir string, xmlFile string, xmlData
 
 	// Recurse into nested resource-lists
 	for i := range xrl.ResourceLists {
-		childItems := parseResourceList(&xrl.ResourceLists[i], dir, xmlFile, xmlData, skinDir, rlInclude, rlExclude, rlEscapes, rlTemplateFunctionMap)
+		childItems := parseResourceList(&xrl.ResourceLists[i], dir, xmlFile, xmlData, skinDir, rlInclude, rlExclude, rlEscapes, rlTemplateFunctionMap, rlBlobName, rlPreserveBlobID, rlBlobAttach)
 		items = append(items, childItems...)
 	}
 
@@ -473,7 +488,7 @@ func (ms *Miniskin) collectItems(bucket Bucket) ([]Item, error) {
 			xmlData, _ = os.ReadFile(xmlFile)
 		}
 		for i := range parsed.ResourceLists {
-			items := parseResourceList(&parsed.ResourceLists[i], dir, xmlFile, xmlData, bucket.skinDir, bucket.muxInclude, bucket.muxExclude, bucket.escapeRules, bucket.TemplateFunctionMap)
+			items := parseResourceList(&parsed.ResourceLists[i], dir, xmlFile, xmlData, bucket.skinDir, bucket.muxInclude, bucket.muxExclude, bucket.escapeRules, bucket.TemplateFunctionMap, "", "", "")
 			result = append(result, items...)
 		}
 		return nil

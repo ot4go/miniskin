@@ -134,7 +134,8 @@ func (ms *Miniskin) SetVerbosity(v Verbosity) *Miniskin {
 // BucketResult holds a parsed bucket and its collected items.
 type BucketResult struct {
 	Bucket Bucket
-	Items  []Item
+	Items  []Item      // items embedded + served normally (blob items excluded)
+	Blobs  []BlobIndex // blobs packed for this bucket (from blob-name resource-lists)
 }
 
 // Result holds everything miniskin parsed and processed.
@@ -260,6 +261,17 @@ func (ms *Miniskin) BuildEmbed() (*Result, error) {
 			return nil, err
 		}
 
+		// block items ran their side effects in collectDocBlocks (populating
+		// doc-block buffers); they produce no output file, so drop them before
+		// writing, validating, and embedding.
+		items = dropBlockItems(items)
+
+		var blobs []BlobIndex
+		items, blobs, err = ms.packBlobs(bl, items)
+		if err != nil {
+			return nil, err
+		}
+
 		for i := range items {
 			items[i].Index = idx
 			idx++
@@ -289,6 +301,7 @@ func (ms *Miniskin) BuildEmbed() (*Result, error) {
 		result.Buckets = append(result.Buckets, BucketResult{
 			Bucket: bucket,
 			Items:  items,
+			Blobs:  blobs,
 		})
 	}
 
@@ -368,6 +381,17 @@ func (ms *Miniskin) Run() (*Result, error) {
 			return nil, err
 		}
 
+		// block items ran their side effects in collectDocBlocks (populating
+		// doc-block buffers); they produce no output file, so drop them before
+		// writing, validating, and embedding.
+		items = dropBlockItems(items)
+
+		var blobs []BlobIndex
+		items, blobs, err = ms.packBlobs(bl, items)
+		if err != nil {
+			return nil, err
+		}
+
 		for i := range items {
 			items[i].Index = idx
 			idx++
@@ -397,6 +421,7 @@ func (ms *Miniskin) Run() (*Result, error) {
 		result.Buckets = append(result.Buckets, BucketResult{
 			Bucket: bucket,
 			Items:  items,
+			Blobs:  blobs,
 		})
 	}
 
@@ -558,6 +583,21 @@ func (ms *Miniskin) processItem(item *Item) error {
 	}
 
 	return nil
+}
+
+// dropBlockItems removes type="block" items from the embed list. A block item is
+// processed only for its side effects (populating doc-block buffers, via
+// collectDocBlocks); it produces no output file, so it must not be written,
+// validated for existence, or embedded.
+func dropBlockItems(items []Item) []Item {
+	out := items[:0]
+	for _, it := range items {
+		if it.HasFlag("block") {
+			continue
+		}
+		out = append(out, it)
+	}
+	return out
 }
 
 // collectDocBlocks runs a dry-run pass over the bucket items to populate

@@ -68,6 +68,7 @@ import (
 	"path/filepath"
 
 	"github.com/ot4go/miniskin"
+	"github.com/ot4go/mskblob"
 )
 
 func main() {
@@ -90,7 +91,7 @@ func main() {
 
 	// Validate command
 	switch cmd {
-	case "run", "generate", "generate-claude-skill", "generate-agent-docs", "mockup update", "mockup clean", "mockup negative", "deps", "combine", "split":
+	case "run", "generate", "generate-claude-skill", "generate-agent-docs", "mockup update", "mockup clean", "mockup negative", "deps", "combine", "split", "blob-header":
 		// valid
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", cmd)
@@ -240,6 +241,23 @@ func main() {
 		if err == nil {
 			fmt.Printf("split: %s\n", args[0])
 		}
+	case "blob-header":
+		args := fs.Args()
+		if len(args) < 1 {
+			fmt.Fprintf(os.Stderr, "Usage: miniskin blob-header <file.blob>\n")
+			os.Exit(1)
+		}
+		var hdr mskblob.Header
+		hdr, err = mskblob.ReadHeader(args[0])
+		if err == nil {
+			fmt.Printf("blob:    %s\n", args[0])
+			fmt.Printf("magic:   MSPK\n")
+			fmt.Printf("version: %d\n", hdr.Version)
+			fmt.Printf("id:      %s\n", hdr.ID)
+			fmt.Printf("entries: %d\n", hdr.Count)
+			fmt.Printf("dataCRC: %#08x\n", hdr.DataCRC32)
+			fmt.Printf("data:    %d bytes\n", hdr.DataSize)
+		}
 	}
 
 	if err != nil {
@@ -260,6 +278,7 @@ func usage() {
 	fmt.Fprintf(os.Stderr, "  deps                   Show dependency map and processing order\n")
 	fmt.Fprintf(os.Stderr, "  combine <dir>          Combine subdirectory XMLs into one\n")
 	fmt.Fprintf(os.Stderr, "  split <file>           Split nested resource-lists into separate XMLs\n")
+	fmt.Fprintf(os.Stderr, "  blob-header <file>     Inspect a .blob file's header (magic, version, buildID)\n")
 	fmt.Fprintf(os.Stderr, "\nFlags:\n")
 	fmt.Fprintf(os.Stderr, "  -content string        path to content directory (default \".\")\n")
 	fmt.Fprintf(os.Stderr, "  -modules string        path to modules directory (default \".\")\n")

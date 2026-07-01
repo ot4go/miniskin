@@ -90,4 +90,5 @@ miniskin mockup negative -src m.html -dst n.html   # single file negative
 miniskin deps                                      # show dependency map
 miniskin combine content/app                       # combine XMLs into one
 miniskin split content/app/app.miniskin.xml         # split back into subdirectories
+miniskin blob-header blob/prod-img.blob            # inspect a .blob header (magic, version, guid, entries, CRC)
 ```

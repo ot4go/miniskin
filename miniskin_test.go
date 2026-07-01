@@ -5009,6 +5009,64 @@ func TestChainedResourceLists(t *testing.T) {
 
 // ---
 
+// A type="block" item is processed for its side effects (populating doc-block
+// buffers) but writes no output file and is not embedded. A separate consumer
+// item emits the buffer it built.
+func TestBlockItemNoOutput(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "app"), 0755)
+
+	os.WriteFile(filepath.Join(dir, "root.miniskin.xml"), []byte(`<miniskin>
+	<bucket-list filename="embed.go" module="content">
+		<bucket src="app" dst="/gen.go" module-name="app" />
+	</bucket-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "app.miniskin.xml"), []byte(`<miniskin>
+	<resource-list>
+		<item type="block" src="./_block.list" />
+		<item type="static" src="./_doc.src" file="doc.md" />
+	</resource-list>
+</miniskin>`), 0644)
+
+	os.WriteFile(filepath.Join(dir, "app", "_block.list"), []byte(
+		"<%% doc-block-begin: b1 %%>\n<%% include-notes:comp.js %%>\n<%% doc-block-end: b1 %%>\n"), 0644)
+	os.WriteFile(filepath.Join(dir, "app", "comp.js"), []byte(
+		"console.log(1);\n<%% note:\n# Comp\n\nHello world\n%%>\n"), 0644)
+	os.WriteFile(filepath.Join(dir, "app", "_doc.src"), []byte(
+		"<%% doc-block-toc: b1 %%>\n\n<%% doc-block-content: b1 %%>\n"), 0644)
+
+	ms := newSilent(dir, dir)
+	result, err := ms.BuildEmbed()
+	if err != nil {
+		t.Fatalf("BuildEmbed failed: %v", err)
+	}
+
+	// the block item is dropped: only the consumer survives in the embed list
+	items := result.Buckets[0].Items
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item (block dropped), got %d", len(items))
+	}
+	if items[0].File != "doc.md" {
+		t.Errorf("surviving item should be doc.md, got %s", items[0].File)
+	}
+
+	// the consumer output holds the notes the block item captured, plus a TOC
+	data, err := os.ReadFile(filepath.Join(dir, "app", "doc.md"))
+	if err != nil {
+		t.Fatalf("reading doc.md: %v", err)
+	}
+	out := string(data)
+	if !strings.Contains(out, "# Comp") || !strings.Contains(out, "Hello world") {
+		t.Errorf("doc.md missing captured note content:\n%s", out)
+	}
+	if !strings.Contains(out, "(#comp)") {
+		t.Errorf("doc.md missing generated TOC anchor:\n%s", out)
+	}
+}
+
+// ---
+
 func TestNestedResourceListWithSrc(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, "app", "sub"), 0755)

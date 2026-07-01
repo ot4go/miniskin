@@ -13,21 +13,21 @@ import (
 
 func TestEmbedVarNameSimple(t *testing.T) {
 	got := embedVarName("app/login/signin.html")
-	if got != "AppLoginSigninHtml" {
-		t.Errorf("expected AppLoginSigninHtml, got %s", got)
+	if got != "FAppLoginSigninHtml" {
+		t.Errorf("expected FAppLoginSigninHtml, got %s", got)
 	}
 }
 
 func TestEmbedVarNameRootLevel(t *testing.T) {
 	got := embedVarName("style.css")
-	if got != "StyleCss" {
-		t.Errorf("expected StyleCss, got %s", got)
+	if got != "FStyleCss" {
+		t.Errorf("expected FStyleCss, got %s", got)
 	}
 }
 
 func TestEmbedVarNameWithDashes(t *testing.T) {
 	got := embedVarName("app/my-module/my-file.min.js")
-	expected := "AppMy_moduleMy_file_minJs"
+	expected := "FAppMy_moduleMy_file_minJs"
 	if got != expected {
 		t.Errorf("expected %s, got %s", expected, got)
 	}
@@ -35,8 +35,8 @@ func TestEmbedVarNameWithDashes(t *testing.T) {
 
 func TestEmbedVarNameDeepPath(t *testing.T) {
 	got := embedVarName("a/b/c/d.txt")
-	if got != "ABCDTxt" {
-		t.Errorf("expected ABCDTxt, got %s", got)
+	if got != "FABCDTxt" {
+		t.Errorf("expected FABCDTxt, got %s", got)
 	}
 }
 
@@ -404,7 +404,7 @@ func TestGenerateBucketFileResponseMux(t *testing.T) {
 	}
 	content := string(data)
 
-	if !strings.Contains(content, `serveResponse(mux, "/old", content.AppRedirHttp)`) {
+	if !strings.Contains(content, `serveResponse(mux, "/old", content.FAppRedirHttp)`) {
 		t.Error("missing serveResponse registration for response item")
 	}
 	if !strings.Contains(content, "func serveResponse(") {
@@ -422,6 +422,179 @@ func TestGenerateBucketFileResponseMux(t *testing.T) {
 	}
 
 	// the generated file must be valid Go
+	if _, err := parser.ParseFile(token.NewFileSet(), "gen.go", content, parser.AllErrors); err != nil {
+		t.Fatalf("generated code is not valid Go: %v\n%s", err, content)
+	}
+}
+
+// A bucket with a blob emits a per-blob loader that uses the blob package, plus
+// the package import — and the result must be valid Go.
+// miniskin::mux is the legacy preset with automatic init and NO blob support:
+// blobs are exclusive to miniskin::muxblob. Even when blob items are present, the
+// mux template must ignore .Blobs entirely (no mskblob import, no loader) and keep
+// compiling as plain embedded routes.
+func TestGenerateBucketFileMuxIgnoresBlobs(t *testing.T) {
+	dir := t.TempDir()
+	modDir := t.TempDir()
+
+	result := &Result{
+		BucketList: BucketList{
+			Filename: "generated_embed.go",
+			Module:   "content",
+			Import:   "example.com/app/content",
+		},
+		Buckets: []BucketResult{
+			{
+				Bucket: Bucket{Dst: "gen.go", ModuleName: "app", Template: "miniskin::mux"},
+				Items: []Item{
+					{Type: "static", File: "style.css", EmbedPath: "app/style.css", Key: "/assets/style.css"},
+				},
+				Blobs: []BlobIndex{
+					{Name: "prod-img.blob", Base: "/prod-img/", ID: "947d88a9-7196-490c-87dd-9a8a1262b0ec1"},
+				},
+			},
+		},
+	}
+
+	cg := CodegenNew(dir, modDir)
+	if err := cg.GenerateBucketFile(result, result.Buckets[0]); err != nil {
+		t.Fatalf("GenerateBucketFile failed: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(modDir, "gen.go"))
+	if err != nil {
+		t.Fatalf("generated file not found: %v", err)
+	}
+	content := string(data)
+
+	// the embedded routes still generate normally
+	if !strings.Contains(content, `serveStatic(mux, "/assets/style.css"`) {
+		t.Error("missing serveStatic registration for embedded item")
+	}
+	// but NO blob wiring leaks into the legacy mux preset
+	for _, unwanted := range []string{
+		`"github.com/ot4go/mskblob"`,
+		"LoadProdImgBlob",
+		"mskblob.Load",
+	} {
+		if strings.Contains(content, unwanted) {
+			t.Errorf("miniskin::mux must not emit blob code, found %q", unwanted)
+		}
+	}
+
+	if _, err := parser.ParseFile(token.NewFileSet(), "gen.go", content, parser.AllErrors); err != nil {
+		t.Fatalf("generated code is not valid Go: %v\n%s", err, content)
+	}
+}
+
+func TestValidateBlobAttach(t *testing.T) {
+	for _, ok := range []string{"", "mux", "assets", "templates", "mux,assets,templates", "mux templates"} {
+		if err := validateBlobAttach(ok); err != nil {
+			t.Errorf("validateBlobAttach(%q) = %v, want nil", ok, err)
+		}
+	}
+	for _, bad := range []string{"mxu", "asset", "mux,asset", "foo"} {
+		if err := validateBlobAttach(bad); err == nil {
+			t.Errorf("validateBlobAttach(%q) = nil, want error", bad)
+		}
+	}
+}
+
+// The miniskin::muxblob template emits the blob-attach model (OnError,
+// RegisterMskBlob by guid, serveStaticBlob, the <Base>ID const) and must be valid Go.
+func TestGenerateBucketFileMuxBlob(t *testing.T) {
+	dir := t.TempDir()
+	modDir := t.TempDir()
+
+	result := &Result{
+		BucketList: BucketList{Filename: "generated_embed.go", Module: "content", Import: "example.com/app/content"},
+		Buckets: []BucketResult{
+			{
+				Bucket: Bucket{Dst: "gen.go", ModuleName: "app", Template: "miniskin::muxblob"},
+				Items: []Item{
+					{Type: "static", File: "style.css", EmbedPath: "app/style.css", Key: "/assets/style.css"},
+				},
+				Blobs: []BlobIndex{
+					{Name: "prod-img.blob", Base: "/prod-img/", ID: "947d88a9-7196-490c-87dd-9a8a1262b0ec1", Attach: "mux"},
+				},
+			},
+		},
+	}
+
+	cg := CodegenNew(dir, modDir)
+	if err := cg.GenerateBucketFile(result, result.Buckets[0]); err != nil {
+		t.Fatalf("GenerateBucketFile failed: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(modDir, "gen.go"))
+	if err != nil {
+		t.Fatalf("generated file not found: %v", err)
+	}
+	content := string(data)
+
+	for _, want := range []string{
+		`"github.com/ot4go/mskblob"`,
+		"type OnError func(err error) bool",
+		"func RegisterMskBlob(mux *http.ServeMux, b *mskblob.Blob, onError OnError)",
+		`case ProdImgBlobID:`,
+		`ProdImgBlobID   = "947d88a9-7196-490c-87dd-9a8a1262b0ec1"`,
+		`serveStaticBlob(mux, "/prod-img/"+it.URL, b, it)`,
+		`serveStatic(mux, "/assets/style.css"`,
+	} {
+		if !strings.Contains(content, want) {
+			t.Errorf("missing %q in generated output", want)
+		}
+	}
+	// the classic per-blob loader must NOT appear in this template
+	if strings.Contains(content, "func LoadProdImgBlob(") {
+		t.Error("muxblob must not emit the classic LoadProdImgBlob loader")
+	}
+	if _, err := parser.ParseFile(token.NewFileSet(), "gen.go", content, parser.AllErrors); err != nil {
+		t.Fatalf("generated code is not valid Go: %v\n%s", err, content)
+	}
+}
+
+// A blob with blob-attach="mux,assets,templates" must wire all three branches
+// (independent ifs, not a single switch) over the same blob, and stay valid Go.
+func TestGenerateBucketFileMuxBlobMultiAttach(t *testing.T) {
+	dir := t.TempDir()
+	modDir := t.TempDir()
+
+	result := &Result{
+		BucketList: BucketList{Filename: "generated_embed.go", Module: "content", Import: "example.com/app/content"},
+		Buckets: []BucketResult{
+			{
+				Bucket: Bucket{Dst: "gen.go", ModuleName: "app", Template: "miniskin::muxblob"},
+				Items: []Item{
+					{Type: "static", File: "style.css", EmbedPath: "app/style.css", Key: "/assets/style.css"},
+				},
+				Blobs: []BlobIndex{
+					{Name: "all.blob", Base: "/all/", ID: "11111111-2222-3333-4444-555555555555", Attach: "mux,assets,templates"},
+				},
+			},
+		},
+	}
+
+	cg := CodegenNew(dir, modDir)
+	if err := cg.GenerateBucketFile(result, result.Buckets[0]); err != nil {
+		t.Fatalf("GenerateBucketFile failed: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(modDir, "gen.go"))
+	if err != nil {
+		t.Fatalf("generated file not found: %v", err)
+	}
+	content := string(data)
+
+	// all three attach branches must be present over the same blob
+	for _, want := range []string{
+		`serveStaticBlob(mux, "/all/"+it.URL, b, it)`,         // mux branch
+		`assets[it.Key] = Asset{Data: data, Mime: mskblob.MimeByExt(it.URL)}`, // assets branch
+		`parsedTemplates[it.Key] = t`,                          // templates branch
+	} {
+		if !strings.Contains(content, want) {
+			t.Errorf("missing %q in generated output (multi-attach branch not wired)", want)
+		}
+	}
+
 	if _, err := parser.ParseFile(token.NewFileSet(), "gen.go", content, parser.AllErrors); err != nil {
 		t.Fatalf("generated code is not valid Go: %v\n%s", err, content)
 	}
